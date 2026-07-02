@@ -1,0 +1,62 @@
+version: '3.9'
+
+services:
+  # PostgreSQL + TimescaleDB (single image)
+  db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: energybalance-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: energybalance
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - energybalance-net
+
+  # API Go
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: energybalance-api
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - energybalance-net
+
+  # Migrations (one-off)
+  migrate:
+    image: migrate/migrate:latest
+    volumes:
+      - ./migrations:/migrations
+    command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@db:5432/energybalance?sslmode=disable", "up"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - energybalance-net
+
+volumes:
+  pgdata:
+
+networks:
+  energybalance-net:
+    driver: bridge
