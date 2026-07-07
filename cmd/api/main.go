@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/energybalance/server/internal/delivery/handler"
-	"github.com/energybalance/server/internal/delivery/middleware"
-	"github.com/energybalance/server/internal/delivery/router"
-	"github.com/energybalance/server/internal/ingestion"
-	"github.com/energybalance/server/internal/jwt"
-	"github.com/energybalance/server/internal/repository"
-	"github.com/energybalance/server/internal/usecase"
-	"github.com/energybalance/server/pkg/metrics"
+	"github.com/voltiq/server/internal/delivery/handler"
+	"github.com/voltiq/server/internal/delivery/middleware"
+	"github.com/voltiq/server/internal/delivery/router"
+	"github.com/voltiq/server/internal/ingestion"
+	"github.com/voltiq/server/internal/jwt"
+	"github.com/voltiq/server/internal/repository"
+	"github.com/voltiq/server/internal/usecase"
+	"github.com/voltiq/server/pkg/metrics"
 )
 
 func main() {
@@ -31,7 +31,7 @@ func main() {
 		dbPort := getEnv("DATABASE_PORT", "5432")
 		dbUser := getEnv("DATABASE_USER", "postgres")
 		dbPassword := getEnv("DATABASE_PASSWORD", "postgres")
-		dbName := getEnv("DATABASE_NAME", "energybalance")
+		dbName := getEnv("DATABASE_NAME", "voltiq")
 		dbSSLMode := getEnv("DATABASE_SSL_MODE", "disable")
 
 		databaseURL = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
@@ -86,41 +86,41 @@ func main() {
 
 	// Initialize middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtService)
-	
+
 	// Rate limiting
 	rateLimitRequests := getEnvAsInt("RATE_LIMIT_REQUESTS_PER_MINUTE", 60)
 	rateLimitBurst := getEnvAsInt("RATE_LIMIT_BURST", 30)
 	rateLimiter := middleware.NewRateLimiter(rateLimitRequests, rateLimitBurst)
-	
+
 	// Security headers
 	securityMiddleware := middleware.NewSecurityMiddleware()
-	
+
 	// CORS
 	corsMiddleware := middleware.NewCORSMiddleware(middleware.CORSConfig{
 		AllowedOrigins:   strings.Split(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"), ","),
 		AllowCredentials: true,
 	})
-	
+
 	metricsCollector := metrics.NewMetricsCollector()
 
 	// Setup router
 	cfg := router.Config{
-		AuthHandler:        authHandler,
-		InviteHandler:      inviteHandler,
-		TransformerHandler: transformerHandler,
+		AuthHandler:          authHandler,
+		InviteHandler:        inviteHandler,
+		TransformerHandler:   transformerHandler,
 		ConsumingUnitHandler: ucHandler,
-		BalanceHandler:     balanceHandler,
-		ImportHandler:      importHandler,
-		HealthHandler:      healthHandler,
-		MetricsCollector:   metricsCollector,
-		AuthMiddleware:     authMiddleware,
-		RateLimiter:        rateLimiter,
-		SecurityMiddleware: securityMiddleware,
-		CORSOrigins:        strings.Split(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"), ","),
+		BalanceHandler:       balanceHandler,
+		ImportHandler:        importHandler,
+		HealthHandler:        healthHandler,
+		MetricsCollector:     metricsCollector,
+		AuthMiddleware:       authMiddleware,
+		RateLimiter:          rateLimiter,
+		SecurityMiddleware:   securityMiddleware,
+		CORSOrigins:          strings.Split(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"), ","),
 	}
 
 	r := router.Setup(cfg)
-	
+
 	// Apply CORS (must be after router setup)
 	r.Use(corsMiddleware.Handler)
 

@@ -6,9 +6,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/ingestion"
-	"github.com/energybalance/server/internal/repository"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/ingestion"
+	"github.com/voltiq/server/internal/repository"
 )
 
 var (
@@ -18,10 +18,10 @@ var (
 
 // ImportUseCase handles CSV import business logic
 type ImportUseCase struct {
-	parser           *ingestion.CSVParser
-	importRepo       *repository.ImportRepository
-	transformerRepo  *repository.TransformerReadingRepository
-	ucReadingRepo    *repository.UCReadingRepository
+	parser          *ingestion.CSVParser
+	importRepo      *repository.ImportRepository
+	transformerRepo *repository.TransformerReadingRepository
+	ucReadingRepo   *repository.UCReadingRepository
 }
 
 // ImportInput contains import request data
@@ -61,7 +61,7 @@ func NewImportUseCase(
 // ImportReadings processes a CSV file and imports readings
 func (uc *ImportUseCase) ImportReadings(ctx context.Context, input ImportInput) (*ImportOutput, error) {
 	importID := domain.UUID(time.Now().Format("20060102150405"))
-	
+
 	importRecord := &domain.Import{
 		ID:        importID,
 		TenantID:  input.TenantID,

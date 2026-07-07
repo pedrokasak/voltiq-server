@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/energybalance/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/delivery/request"
 )
 
 // HealthHandler handles health check HTTP requests
@@ -14,10 +14,10 @@ type HealthHandler struct {
 
 // HealthResponse represents a health check response
 type HealthResponse struct {
-	Status    string                 `json:"status"`
-	Timestamp time.Time              `json:"timestamp"`
-	Version   string                 `json:"version"`
-	Checks    map[string]string      `json:"checks,omitempty"`
+	Status    string            `json:"status"`
+	Timestamp time.Time         `json:"timestamp"`
+	Version   string            `json:"version"`
+	Checks    map[string]string `json:"checks,omitempty"`
 }
 
 // NewHealthHandler creates a new HealthHandler
@@ -42,8 +42,8 @@ func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	// In a real implementation, check database connectivity, migrations, etc.
 	checks := map[string]string{
-		"database":    "ok",
-		"migrations":  "ok",
+		"database":   "ok",
+		"migrations": "ok",
 	}
 
 	response := HealthResponse{

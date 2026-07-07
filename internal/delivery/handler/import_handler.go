@@ -7,11 +7,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/energybalance/server/internal/delivery/middleware"
-	"github.com/energybalance/server/internal/delivery/request"
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/ingestion"
-	"github.com/energybalance/server/internal/usecase"
+	"github.com/voltiq/server/internal/delivery/middleware"
+	"github.com/voltiq/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/ingestion"
+	"github.com/voltiq/server/internal/usecase"
 )
 
 // ImportHandler handles CSV import HTTP requests
@@ -237,14 +237,14 @@ func (h *ImportHandler) GetImportSummary(w http.ResponseWriter, r *http.Request)
 	}
 
 	response := map[string]any{
-		"total_imports":   totalImports,
-		"completed":       completed,
-		"processing":      processing,
-		"failed":          failed,
-		"total_rows":      totalRows,
-		"total_rows_ok":   totalRowsOK,
+		"total_imports":    totalImports,
+		"completed":        completed,
+		"processing":       processing,
+		"failed":           failed,
+		"total_rows":       totalRows,
+		"total_rows_ok":    totalRowsOK,
 		"total_rows_error": totalRowsError,
-		"success_rate":    0.0,
+		"success_rate":     0.0,
 	}
 
 	if totalRows > 0 {

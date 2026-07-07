@@ -3,7 +3,7 @@ package api
 import (
 	"time"
 
-	"github.com/energybalance/server/internal/usecase"
+	"github.com/voltiq/server/internal/usecase"
 )
 
 // JWTServiceWrapper wraps the existing JWTService to implement the usecase.JWTService interface
@@ -24,7 +24,7 @@ func (w *JWTServiceWrapper) GenerateToken(userID, tenantID, email, role string) 
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	
+
 	expiresAt := time.Now().Add(24 * time.Hour)
 	return token, expiresAt, nil
 }

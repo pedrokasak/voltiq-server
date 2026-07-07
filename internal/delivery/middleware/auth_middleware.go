@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/delivery/request"
-	"github.com/energybalance/server/internal/jwt"
+	"github.com/voltiq/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/jwt"
 )
 
 type contextKey string
@@ -47,17 +47,17 @@ func (m *AuthMiddleware) Handler(next http.Handler) http.Handler {
 		}
 
 		tokenString := parts[1]
-	claims, err := m.jwtService.ValidateToken(tokenString)
-	if err != nil {
-		request.WriteJSON(w, http.StatusUnauthorized, request.Fail("UNAUTHORIZED", "invalid or expired token", nil))
-		return
-	}
+		claims, err := m.jwtService.ValidateToken(tokenString)
+		if err != nil {
+			request.WriteJSON(w, http.StatusUnauthorized, request.Fail("UNAUTHORIZED", "invalid or expired token", nil))
+			return
+		}
 
-	ctx := r.Context()
-	ctx = context.WithValue(ctx, UserIDKey, domain.UUID(claims.UserID))
-	ctx = context.WithValue(ctx, TenantIDKey, domain.UUID(claims.TenantID))
-	ctx = context.WithValue(ctx, EmailKey, claims.Email)
-	ctx = context.WithValue(ctx, RoleKey, string(claims.Role))
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, UserIDKey, domain.UUID(claims.UserID))
+		ctx = context.WithValue(ctx, TenantIDKey, domain.UUID(claims.TenantID))
+		ctx = context.WithValue(ctx, EmailKey, claims.Email)
+		ctx = context.WithValue(ctx, RoleKey, string(claims.Role))
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

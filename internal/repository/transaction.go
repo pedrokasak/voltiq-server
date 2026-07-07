@@ -2,14 +2,11 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/energybalance/server/internal/domain"
 )
 
 // AtomicTransactionManager handles atomic database operations
@@ -57,7 +54,7 @@ func (m *AtomicTransactionManager) WithTransaction(ctx context.Context, fn func(
 // WithTransactionAndRetry executes a function with retry logic for deadlocks
 func (m *AtomicTransactionManager) WithTransactionAndRetry(ctx context.Context, maxRetries int, fn func(tx pgx.Tx) error) error {
 	var lastErr error
-	
+
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		err := m.WithTransaction(ctx, fn)
 		if err == nil {
@@ -91,21 +88,21 @@ func isRetryableError(err error) bool {
 	}
 
 	errStr := err.Error()
-	
+
 	// PostgreSQL deadlock detected
 	if contains(errStr, "deadlock detected") {
 		return true
 	}
-	
+
 	// Serialization failure
 	if contains(errStr, "serialization failure") {
 		return true
 	}
-	
+
 	// Connection issues
-	if contains(errStr, "connection reset") || 
-	   contains(errStr, "connection refused") ||
-	   contains(errStr, "broken pipe") {
+	if contains(errStr, "connection reset") ||
+		contains(errStr, "connection refused") ||
+		contains(errStr, "broken pipe") {
 		return true
 	}
 
@@ -127,16 +124,16 @@ func containsAt(s, substr string) bool {
 
 // OptimisticLock helps prevent lost updates
 type OptimisticLock struct {
-	tableName string
-	idColumn  string
+	tableName     string
+	idColumn      string
 	versionColumn string
 }
 
 // NewOptimisticLock creates a new optimistic lock helper
 func NewOptimisticLock(tableName, idColumn, versionColumn string) *OptimisticLock {
 	return &OptimisticLock{
-		tableName: tableName,
-		idColumn: idColumn,
+		tableName:     tableName,
+		idColumn:      idColumn,
 		versionColumn: versionColumn,
 	}
 }
@@ -174,9 +171,9 @@ func (ol *OptimisticLock) UpdateWithVersion(ctx context.Context, tx pgx.Tx, id s
 	args = append(args, id)
 	args = append(args, currentVersion)
 
-	query = "UPDATE " + ol.tableName + " SET " + 
-		joinStrings(setClauses, ", ") + 
-		" WHERE " + ol.idColumn + " = $" + string(rune(argIndex)) + 
+	query = "UPDATE " + ol.tableName + " SET " +
+		joinStrings(setClauses, ", ") +
+		" WHERE " + ol.idColumn + " = $" + string(rune(argIndex)) +
 		" AND " + ol.versionColumn + " = $" + string(rune(argIndex+1))
 
 	result, err := tx.Exec(ctx, query, args...)
@@ -226,8 +223,8 @@ func (pl *PessimisticLock) LockRowsForUpdate(ctx context.Context, tx pgx.Tx, tab
 		args[i] = id
 	}
 
-	query := "SELECT 1 FROM " + tableName + " WHERE id IN (" + 
-		joinStrings(placeholders, ", ") + 
+	query := "SELECT 1 FROM " + tableName + " WHERE id IN (" +
+		joinStrings(placeholders, ", ") +
 		") FOR UPDATE NOWAIT"
 
 	_, err := tx.Exec(ctx, query, args...)

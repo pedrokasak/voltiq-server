@@ -1,4 +1,4 @@
-module github.com/energybalance/server
+module github.com/voltiq/server
 
 go 1.25.0
 

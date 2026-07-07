@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/energybalance/server/internal/domain"
+	"github.com/voltiq/server/internal/domain"
 )
 
 // TransformerRepository handles transformer data access

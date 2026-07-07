@@ -5,17 +5,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/ingestion"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/ingestion"
 )
 
 func TestCSVParser_ParseTransformerReadings(t *testing.T) {
 	parser := ingestion.NewCSVParser()
 
 	csvData := `transformer_id;reading_at;energy_kwh;demand_kw;power_factor
-trafo-001;2024-01-01 00:00:00;1500.50;120.5;0.92
-trafo-001;2024-01-02 00:00:00;1600.75;125.3;0.91
-trafo-002;2024-01-01 00:00:00;2000.00;150.0;0.95`
+	trafo-001;2024-01-01 00:00:00;1500.50;120.5;0.92
+	trafo-001;2024-01-02 00:00:00;1600.75;125.3;0.91
+	trafo-002;2024-01-01 00:00:00;2000.00;150.0;0.95`
 
 	reader := strings.NewReader(csvData)
 	result, err := parser.Parse(reader, ingestion.ReadingTypeTransformer)

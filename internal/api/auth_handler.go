@@ -7,8 +7,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/repository"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/repository"
 )
 
 // AuthHandler handles authentication requests

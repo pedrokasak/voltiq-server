@@ -1,8 +1,8 @@
-# EnergyBalance Server - Month 1 Base Implementation
+# Voltiq Server - Month 1 Base Implementation
 
 ## Overview
 
-Complete Go server implementation for EnergyBalance SaaS following AGENTS.md conventions:
+Complete Go server implementation for Voltiq SaaS following AGENTS.md conventions:
 - All variable names, functions, and database tables in **English**
 - Unit tests for all calculation functions
 - PostgreSQL + TimescaleDB for persistence

@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/repository"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/repository"
 )
 
 // ConsumingUnitHandler handles consuming unit CRUD requests

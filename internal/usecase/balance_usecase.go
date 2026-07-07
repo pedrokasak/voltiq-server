@@ -5,15 +5,15 @@ import (
 	"errors"
 	"time"
 
-	"github.com/energybalance/server/internal/calc"
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/repository"
+	"github.com/voltiq/server/internal/calc"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/repository"
 )
 
 var (
-	ErrBalanceNotFound       = errors.New("balance not found")
-	ErrInsufficientData      = errors.New("insufficient data for balance calculation")
-	ErrTransformerNotFound   = errors.New("transformer not found")
+	ErrBalanceNotFound     = errors.New("balance not found")
+	ErrInsufficientData    = errors.New("insufficient data for balance calculation")
+	ErrTransformerNotFound = errors.New("transformer not found")
 )
 
 // BalanceUseCase handles energy balance calculation business logic

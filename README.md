@@ -1,4 +1,4 @@
-# EnergyBalance Server
+# Voltiq Server
 
 Go server implementation for EnergyBalance SaaS — energy balance calculation and technical loss analysis for distribution transformers per ANEEL PRODIST Module 7.
 
@@ -53,7 +53,7 @@ server/
 ## Environment Variables
 
 ```env
-DATABASE_URL=postgres://user:pass@host:5432/energybalance?sslmode=disable
+DATABASE_URL=postgres://user:pass@host:5432/voltiq-sw?sslmode=disable
 JWT_SECRET=your-secret-key
 PORT=8080
 ```

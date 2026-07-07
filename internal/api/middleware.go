@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/energybalance/server/internal/domain"
+	"github.com/voltiq/server/internal/domain"
 )
 
 type contextKey string

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/jwt"
-	"github.com/energybalance/server/internal/repository"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/jwt"
+	"github.com/voltiq/server/internal/repository"
 	"golang.org/x/crypto/bcrypt"
 )
 

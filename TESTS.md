@@ -1,4 +1,4 @@
-# EnergyBalance Server Tests
+# Voltiq Server Tests
 
 ## Running Tests
 

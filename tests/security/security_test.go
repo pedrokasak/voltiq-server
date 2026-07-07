@@ -2,7 +2,6 @@ package security_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,13 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/energybalance/server/internal/delivery/handler"
-	"github.com/energybalance/server/internal/delivery/middleware"
-	"github.com/energybalance/server/internal/delivery/request"
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/jwt"
-	"github.com/energybalance/server/internal/repository"
-	"github.com/energybalance/server/internal/usecase"
+	"github.com/voltiq/server/internal/delivery/handler"
+	"github.com/voltiq/server/internal/delivery/middleware"
+	"github.com/voltiq/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/jwt"
+	"github.com/voltiq/server/internal/repository"
+	"github.com/voltiq/server/internal/usecase"
 )
 
 // TestRateLimiting tests rate limiting middleware
@@ -146,12 +144,12 @@ func TestSecurityHeaders(t *testing.T) {
 	securedHandler.ServeHTTP(rr, req)
 
 	expectedHeaders := map[string]string{
-		"X-Content-Type-Options":  "nosniff",
-		"X-Frame-Options":         "DENY",
-		"X-XSS-Protection":        "1; mode=block",
+		"X-Content-Type-Options":            "nosniff",
+		"X-Frame-Options":                   "DENY",
+		"X-XSS-Protection":                  "1; mode=block",
 		"X-Permitted-Cross-Domain-Policies": "none",
-		"Referrer-Policy":         "strict-origin-when-cross-origin",
-		"Cache-Control":           "no-store, no-cache, must-revalidate, proxy-revalidate",
+		"Referrer-Policy":                   "strict-origin-when-cross-origin",
+		"Cache-Control":                     "no-store, no-cache, must-revalidate, proxy-revalidate",
 	}
 
 	for header, expected := range expectedHeaders {
@@ -244,7 +242,7 @@ func TestSQLInjectionPrevention(t *testing.T) {
 		// Our middleware should escape HTML but we need to ensure
 		// database layer uses parameterized queries
 		sanitized := middleware.SanitizeInput(input)
-		
+
 		// Check that dangerous characters are escaped
 		if strings.Contains(sanitized, "'") && !strings.Contains(sanitized, "&#39;") {
 			t.Errorf("Single quote not properly escaped in: %s", input)
@@ -407,7 +405,7 @@ func BenchmarkRateLimiting(b *testing.B) {
 // BenchmarkXSSSanitization benchmarks XSS sanitization
 func BenchmarkXSSSanitization(b *testing.B) {
 	input := "<script>alert('XSS')</script><img onerror=alert(1)>"
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		middleware.SanitizeInput(input)

@@ -7,9 +7,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/energybalance/server/internal/delivery/request"
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/usecase"
+	"github.com/voltiq/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/usecase"
 )
 
 // BalanceHandler handles energy balance HTTP requests

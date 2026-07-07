@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/energybalance/server/internal/domain"
+	"github.com/voltiq/server/internal/domain"
 )
 
 // ImportRepository handles import history data access

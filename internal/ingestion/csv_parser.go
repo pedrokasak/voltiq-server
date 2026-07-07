@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/energybalance/server/internal/domain"
+	"github.com/voltiq/server/internal/domain"
 )
 
 // ReadingType represents the type of reading being imported

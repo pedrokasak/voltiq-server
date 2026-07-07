@@ -7,10 +7,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/energybalance/server/internal/delivery/middleware"
-	"github.com/energybalance/server/internal/delivery/request"
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/usecase"
+	"github.com/voltiq/server/internal/delivery/middleware"
+	"github.com/voltiq/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/usecase"
 )
 
 // TransformerHandler handles transformer HTTP requests
@@ -309,7 +309,7 @@ func (h *TransformerHandler) BatchUpdate(w http.ResponseWriter, r *http.Request)
 			request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "code is required for all transformers", nil))
 			return
 		}
-		
+
 		transformer, err := h.transformerUseCase.UpdateTransformer(r.Context(), usecase.UpdateTransformerInput{
 			ID:                domain.UUID(req.Code),
 			Code:              req.Code,
@@ -403,12 +403,12 @@ func (h *TransformerHandler) GetLossLimit(w http.ResponseWriter, r *http.Request
 	}
 
 	response := map[string]any{
-		"transformer_id":   transformer.ID,
-		"loss_limit_pct":   transformer.LossLimitPct,
-		"code":             transformer.Code,
-		"power_kva":        transformer.PowerKVA,
-		"core_loss_kw":     transformer.CoreLossKW,
-		"winding_loss_kw":  transformer.WindingLossKW,
+		"transformer_id":  transformer.ID,
+		"loss_limit_pct":  transformer.LossLimitPct,
+		"code":            transformer.Code,
+		"power_kva":       transformer.PowerKVA,
+		"core_loss_kw":    transformer.CoreLossKW,
+		"winding_loss_kw": transformer.WindingLossKW,
 	}
 
 	request.WriteJSON(w, http.StatusOK, request.Success(response, ""))

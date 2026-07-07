@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/repository"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/repository"
 )
 
 // BalanceHandler handles balance calculation requests

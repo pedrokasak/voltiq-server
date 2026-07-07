@@ -7,14 +7,14 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/repository"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/repository"
 	"golang.org/x/crypto/bcrypt"
 )
 
 var (
-	ErrTenantExists  = errors.New("tenant with this document already exists")
-	ErrInvalidPlan   = errors.New("invalid tenant plan")
+	ErrTenantExists = errors.New("tenant with this document already exists")
+	ErrInvalidPlan  = errors.New("invalid tenant plan")
 )
 
 // ParseTenantPlan parses a string to TenantPlan

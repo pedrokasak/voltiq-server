@@ -8,8 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/repository"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/repository"
 )
 
 // setupTestDB creates a test database connection
@@ -18,7 +18,7 @@ func setupTestDB(t *testing.T) (*repository.Database, func()) {
 	ctx := context.Background()
 	
 	// Use test database URL from environment or default
-	dbURL := "postgres://postgres:postgres@localhost:5432/energybalance_test?sslmode=disable"
+	dbURL := "postgres://postgres:postgres@localhost:5432/voltiq-sw_test?sslmode=disable"
 	
 	db, err := repository.NewDatabase(ctx)
 	if err != nil {

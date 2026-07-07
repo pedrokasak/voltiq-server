@@ -3,9 +3,10 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
-	"github.com/energybalance/server/internal/delivery/request"
-	"github.com/energybalance/server/internal/usecase"
+	"github.com/voltiq/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/usecase"
 )
 
 // AuthHandler handles authentication HTTP requests
@@ -117,9 +118,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 
 	response := map[string]any{
-		"token":      output.Token,
-		"expires_at": output.ExpiresAt,
-		"user":       output.User,
+		"token":              output.Token,
+		"expires_at":         output.ExpiresAt,
+		"user":               output.User,
 		"refresh_expires_at": time.Now().Add(7 * 24 * time.Hour),
 	}
 
@@ -206,8 +207,8 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	})
 
 	response := map[string]any{
-		"token":      output.Token,
-		"expires_at": output.ExpiresAt,
+		"token":              output.Token,
+		"expires_at":         output.ExpiresAt,
 		"refresh_expires_at": output.RefreshExpiry,
 	}
 
@@ -228,7 +229,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	response := map[string]any{
-		"message": "logout successful",
+		"message":         "logout successful",
 		"cookies_cleared": true,
 	}
 

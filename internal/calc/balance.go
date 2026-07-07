@@ -4,7 +4,7 @@ package calc
 import (
 	"time"
 
-	"github.com/energybalance/server/internal/domain"
+	"github.com/voltiq/server/internal/domain"
 )
 
 // CalculateBasicBalance calculates the energy balance of a transformer

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/energybalance/server/internal/calc"
-	"github.com/energybalance/server/internal/domain"
+	"github.com/voltiq/server/internal/calc"
+	"github.com/voltiq/server/internal/domain"
 )
 
 func ptrFloat(v float64) *float64 {

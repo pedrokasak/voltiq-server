@@ -8,7 +8,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/energybalance/server/internal/domain"
+	"github.com/voltiq/server/internal/domain"
 )
 
 var (

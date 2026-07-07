@@ -7,17 +7,17 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/energybalance/server/internal/domain"
-	"github.com/energybalance/server/internal/repository"
+	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/repository"
 	"golang.org/x/crypto/bcrypt"
 )
 
 var (
-	ErrInviteNotFound      = errors.New("invite not found")
-	ErrInviteExpired       = errors.New("invite has expired")
-	ErrInviteAlreadyUsed   = errors.New("invite already accepted")
-	ErrInviteCancelled     = errors.New("invite was cancelled")
-	ErrEmailAlreadyInUse   = errors.New("email already in use")
+	ErrInviteNotFound    = errors.New("invite not found")
+	ErrInviteExpired     = errors.New("invite has expired")
+	ErrInviteAlreadyUsed = errors.New("invite already accepted")
+	ErrInviteCancelled   = errors.New("invite was cancelled")
+	ErrEmailAlreadyInUse = errors.New("email already in use")
 )
 
 // InviteUseCase handles user invitation business logic
@@ -29,9 +29,9 @@ type InviteUseCase struct {
 
 // CreateInviteInput contains data to create an invite
 type CreateInviteInput struct {
-	TenantID domain.UUID
-	Email    string
-	Role     domain.UserRole
+	TenantID  domain.UUID
+	Email     string
+	Role      domain.UserRole
 	InvitedBy domain.UUID
 }
 

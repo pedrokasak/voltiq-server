@@ -1,14 +1,13 @@
 package middleware
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/energybalance/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/delivery/request"
 )
 
 // RateLimiterConfig holds rate limiting configuration

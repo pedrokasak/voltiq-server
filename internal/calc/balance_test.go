@@ -4,8 +4,8 @@ package calc_test
 import (
 	"testing"
 
-	"github.com/energybalance/server/internal/calc"
-	"github.com/energybalance/server/internal/domain"
+	"github.com/voltiq/server/internal/calc"
+	"github.com/voltiq/server/internal/domain"
 )
 
 func TestCalculateBasicBalance(t *testing.T) {

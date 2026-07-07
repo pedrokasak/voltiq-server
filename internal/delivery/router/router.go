@@ -7,25 +7,25 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
-	"github.com/energybalance/server/internal/delivery/handler"
-	deliverymiddleware "github.com/energybalance/server/internal/delivery/middleware"
-	"github.com/energybalance/server/pkg/metrics"
+	"github.com/voltiq/server/internal/delivery/handler"
+	deliverymiddleware "github.com/voltiq/server/internal/delivery/middleware"
+	"github.com/voltiq/server/pkg/metrics"
 )
 
 // Config holds router configuration
 type Config struct {
-	AuthHandler        *handler.AuthHandler
-	InviteHandler      *handler.InviteHandler
-	TransformerHandler *handler.TransformerHandler
+	AuthHandler          *handler.AuthHandler
+	InviteHandler        *handler.InviteHandler
+	TransformerHandler   *handler.TransformerHandler
 	ConsumingUnitHandler *handler.ConsumingUnitHandler
-	BalanceHandler     *handler.BalanceHandler
-	ImportHandler      *handler.ImportHandler
-	HealthHandler      *handler.HealthHandler
-	MetricsCollector   *metrics.MetricsCollector
-	AuthMiddleware     *deliverymiddleware.AuthMiddleware
-	RateLimiter        *deliverymiddleware.RateLimiter
-	SecurityMiddleware *deliverymiddleware.SecurityMiddleware
-	CORSOrigins        []string
+	BalanceHandler       *handler.BalanceHandler
+	ImportHandler        *handler.ImportHandler
+	HealthHandler        *handler.HealthHandler
+	MetricsCollector     *metrics.MetricsCollector
+	AuthMiddleware       *deliverymiddleware.AuthMiddleware
+	RateLimiter          *deliverymiddleware.RateLimiter
+	SecurityMiddleware   *deliverymiddleware.SecurityMiddleware
+	CORSOrigins          []string
 }
 
 // Setup creates and configures the Chi router

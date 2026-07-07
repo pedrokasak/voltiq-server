@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/energybalance/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/delivery/request"
 )
 
 var (
@@ -18,7 +18,7 @@ var (
 
 // FileUploadConfig holds file upload validation configuration
 type FileUploadConfig struct {
-	AllowedMimeTypes []string
+	AllowedMimeTypes  []string
 	AllowedMagicBytes map[string][][]byte
 	MaxFileSize       int64
 	ValidateCSV       bool
@@ -69,7 +69,7 @@ func NewFileUploadMiddleware(config FileUploadConfig) *FileUploadMiddleware {
 func (m *FileUploadMiddleware) ValidateFile(w http.ResponseWriter, r *http.Request, file io.Reader) bool {
 	// Limit reader to max file size
 	limitedReader := io.LimitReader(file, m.config.MaxFileSize+1)
-	
+
 	// Read first bytes for magic number detection
 	buf := make([]byte, 512)
 	n, err := limitedReader.Read(buf)
@@ -169,11 +169,11 @@ func (m *FileUploadMiddleware) hasValidMagicBytes(buf []byte) bool {
 // isValidTextCSV checks if content looks like valid CSV text
 func (m *FileUploadMiddleware) isValidTextCSV(buf []byte) bool {
 	content := string(buf)
-	
+
 	// Check for CSV-like content
 	hasComma := strings.Contains(content, ",")
 	hasNewline := strings.Contains(content, "\n")
-	
+
 	if !hasComma || !hasNewline {
 		return false
 	}
@@ -191,7 +191,7 @@ func (m *FileUploadMiddleware) isValidTextCSV(buf []byte) bool {
 // validateCSVStructure validates CSV structure
 func (m *FileUploadMiddleware) validateCSVStructure(buf []byte) error {
 	reader := csv.NewReader(strings.NewReader(string(buf)))
-	
+
 	// Read header
 	header, err := reader.Read()
 	if err != nil {
@@ -229,12 +229,12 @@ func ContentTypeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Prevent MIME type sniffing
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		
+
 		// Set default content type for JSON responses
 		if r.Header.Get("Accept") == "" || strings.Contains(r.Header.Get("Accept"), "application/json") {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
