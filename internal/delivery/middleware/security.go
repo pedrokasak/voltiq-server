@@ -150,7 +150,7 @@ func SanitizeInput(input string) string {
 // RequestIDMiddleware adds unique request ID for tracking
 func RequestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), r.Context().Value(&contextKey{}))
+		requestID := fmt.Sprintf("%d", time.Now().UnixNano())
 		w.Header().Set("X-Request-ID", requestID)
 		next.ServeHTTP(w, r)
 	})

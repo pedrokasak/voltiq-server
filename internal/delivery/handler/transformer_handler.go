@@ -180,9 +180,15 @@ func (h *TransformerHandler) GetByCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Implementar lógica para buscar por código
-	// Por enquanto, retorna erro
-	request.WriteJSON(w, http.StatusNotImplemented, request.Fail("NOT_IMPLEMENTED", "endpoint not implemented", nil))
+	tenantID := middleware.GetTenantID(r.Context())
+
+	transformer, err := h.transformerUseCase.GetTransformerByCode(r.Context(), tenantID, code)
+	if err != nil {
+		request.WriteJSON(w, http.StatusNotFound, request.Fail("NOT_FOUND", "transformer not found", nil))
+		return
+	}
+
+	request.WriteJSON(w, http.StatusOK, request.Success(transformer, ""))
 }
 
 // ListBySubstation handles listing transformers by substation
@@ -206,9 +212,13 @@ func (h *TransformerHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Implementar lógica para estatísticas do transformador
-	// Por enquanto, retorna erro
-	request.WriteJSON(w, http.StatusNotImplemented, request.Fail("NOT_IMPLEMENTED", "endpoint not implemented", nil))
+	stats, err := h.transformerUseCase.GetTransformerStats(r.Context(), domain.UUID(id))
+	if err != nil {
+		request.WriteJSON(w, http.StatusNotFound, request.Fail("NOT_FOUND", "transformer not found", nil))
+		return
+	}
+
+	request.WriteJSON(w, http.StatusOK, request.Success(stats, ""))
 }
 
 // LossAnalysis handles getting transformer loss analysis
@@ -383,9 +393,20 @@ func (h *TransformerHandler) ExistsByCode(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Implementar lógica para verificar existência por código
-	// Por enquanto, retorna erro
-	request.WriteJSON(w, http.StatusNotImplemented, request.Fail("NOT_IMPLEMENTED", "endpoint not implemented", nil))
+	tenantID := middleware.GetTenantID(r.Context())
+
+	exists, err := h.transformerUseCase.TransformerExistsByCode(r.Context(), tenantID, code)
+	if err != nil {
+		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("CHECK_ERROR", err.Error(), nil))
+		return
+	}
+
+	response := map[string]any{
+		"code":  code,
+		"exists": exists,
+	}
+
+	request.WriteJSON(w, http.StatusOK, request.Success(response, ""))
 }
 
 // GetLossLimit handles getting transformer loss limit

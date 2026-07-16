@@ -20,6 +20,7 @@ type Config struct {
 	ConsumingUnitHandler *handler.ConsumingUnitHandler
 	BalanceHandler       *handler.BalanceHandler
 	ImportHandler        *handler.ImportHandler
+	DashboardHandler     *handler.DashboardHandler
 	HealthHandler        *handler.HealthHandler
 	MetricsCollector     *metrics.MetricsCollector
 	AuthMiddleware       *deliverymiddleware.AuthMiddleware
@@ -76,14 +77,14 @@ func Setup(cfg Config) *chi.Mux {
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public routes (no auth required)
-		r.Post("/auth/login", cfg.AuthHandler.Login)
-		r.Post("/auth/signup", cfg.AuthHandler.Signup)
-		r.Post("/auth/refresh", cfg.AuthHandler.RefreshToken)
-		r.Post("/auth/logout", cfg.AuthHandler.Logout)
-
-		// Invite routes (public for token validation and acceptance)
-		r.Get("/invites/{token}", cfg.InviteHandler.ValidateInvite)
-		r.Post("/invites/{token}/accept", cfg.InviteHandler.AcceptInvite)
+		r.Group(func(r chi.Router) {
+			r.Post("/auth/login", cfg.AuthHandler.Login)
+			r.Post("/auth/signup", cfg.AuthHandler.Signup)
+			r.Post("/auth/refresh", cfg.AuthHandler.RefreshToken)
+			r.Post("/auth/logout", cfg.AuthHandler.Logout)
+			r.Get("/invites/{token}", cfg.InviteHandler.ValidateInvite)
+			r.Post("/invites/{token}/accept", cfg.InviteHandler.AcceptInvite)
+		})
 
 		// Protected routes
 		r.Group(func(r chi.Router) {
@@ -159,6 +160,12 @@ func Setup(cfg Config) *chi.Mux {
 				r.Post("/batch", cfg.ImportHandler.BatchUpload)
 				r.Get("/template", cfg.ImportHandler.GetUploadTemplate)
 				r.Post("/validate", cfg.ImportHandler.ValidateCSV)
+			})
+
+			// Dashboard routes
+			r.Route("/dashboard", func(r chi.Router) {
+				r.Get("/kpis", cfg.DashboardHandler.GetKPIs)
+				r.Get("/monthly-loss", cfg.DashboardHandler.GetMonthlyLossHistory)
 			})
 		})
 	})

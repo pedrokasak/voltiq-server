@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/voltiq/server/internal/delivery/handler"
@@ -31,7 +30,7 @@ func main() {
 		dbPort := getEnv("DATABASE_PORT", "5432")
 		dbUser := getEnv("DATABASE_USER", "postgres")
 		dbPassword := getEnv("DATABASE_PASSWORD", "postgres")
-		dbName := getEnv("DATABASE_NAME", "voltiq")
+		dbName := getEnv("DATABASE_NAME", "voltiq-sw")
 		dbSSLMode := getEnv("DATABASE_SSL_MODE", "disable")
 
 		databaseURL = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
@@ -82,6 +81,7 @@ func main() {
 	ucHandler := handler.NewConsumingUnitHandler(ucUseCase)
 	balanceHandler := handler.NewBalanceHandler(balanceUseCase)
 	importHandler := handler.NewImportHandler(importUseCase)
+	dashboardHandler := handler.NewDashboardHandler(transformerRepo, balanceRepo, ucRepo)
 	healthHandler := handler.NewHealthHandler("0.1.0")
 
 	// Initialize middleware
@@ -95,12 +95,6 @@ func main() {
 	// Security headers
 	securityMiddleware := middleware.NewSecurityMiddleware()
 
-	// CORS
-	corsMiddleware := middleware.NewCORSMiddleware(middleware.CORSConfig{
-		AllowedOrigins:   strings.Split(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"), ","),
-		AllowCredentials: true,
-	})
-
 	metricsCollector := metrics.NewMetricsCollector()
 
 	// Setup router
@@ -111,18 +105,15 @@ func main() {
 		ConsumingUnitHandler: ucHandler,
 		BalanceHandler:       balanceHandler,
 		ImportHandler:        importHandler,
+		DashboardHandler:     dashboardHandler,
 		HealthHandler:        healthHandler,
 		MetricsCollector:     metricsCollector,
 		AuthMiddleware:       authMiddleware,
 		RateLimiter:          rateLimiter,
 		SecurityMiddleware:   securityMiddleware,
-		CORSOrigins:          strings.Split(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"), ","),
 	}
 
 	r := router.Setup(cfg)
-
-	// Apply CORS (must be after router setup)
-	r.Use(corsMiddleware.Handler)
 
 	// Start server
 	port := getEnv("PORT", "8080")

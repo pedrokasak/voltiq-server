@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM golang:1.22-alpine AS builder
+FROM golang:1.22.12-alpine AS builder
 
 WORKDIR /build
 
@@ -28,7 +28,7 @@ RUN apk --no-cache add ca-certificates tzdata
 COPY --from=builder /api /app/api
 
 # Copy migrations
-COPY --from=builder /migrations /app/migrations
+COPY --from=builder /build/migrations /app/migrations
 
 # Expose port
 EXPOSE 8080

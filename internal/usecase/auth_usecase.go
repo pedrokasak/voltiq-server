@@ -160,3 +160,8 @@ func (uc *AuthUseCase) Logout(ctx context.Context, input LogoutInput) error {
 	// Por enquanto, apenas logamos o logout
 	return nil
 }
+
+// GetJWTService returns the JWT service for token operations
+func (uc *AuthUseCase) GetJWTService() *jwt.Service {
+	return uc.jwtService
+}
