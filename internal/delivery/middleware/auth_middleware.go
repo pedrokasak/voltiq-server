@@ -8,6 +8,7 @@ import (
 	"github.com/voltiq/server/internal/delivery/request"
 	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/jwt"
+	"github.com/voltiq/server/internal/repository"
 )
 
 type contextKey string
@@ -22,12 +23,14 @@ const (
 // AuthMiddleware handles JWT authentication
 type AuthMiddleware struct {
 	jwtService *jwt.Service
+	db         *repository.Database
 }
 
 // NewAuthMiddleware creates a new AuthMiddleware
-func NewAuthMiddleware(jwtService *jwt.Service) *AuthMiddleware {
+func NewAuthMiddleware(jwtService *jwt.Service, db *repository.Database) *AuthMiddleware {
 	return &AuthMiddleware{
 		jwtService: jwtService,
+		db:         db,
 	}
 }
 
@@ -58,6 +61,11 @@ func (m *AuthMiddleware) Handler(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, TenantIDKey, domain.UUID(claims.TenantID))
 		ctx = context.WithValue(ctx, EmailKey, claims.Email)
 		ctx = context.WithValue(ctx, RoleKey, string(claims.Role))
+
+		// Set tenant ID for RLS policies using the db instance from middleware
+		if m.db != nil {
+			ctx = m.db.SetTenantID(ctx, claims.TenantID)
+		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

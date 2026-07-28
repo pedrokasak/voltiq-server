@@ -46,7 +46,7 @@ func (r *TenantRepository) GetByID(ctx context.Context, id domain.UUID) (*domain
 	query := `
 		SELECT id, name, document, plan, trial_until, active, created_at, updated_at
 		FROM tenants
-		WHERE id = $1 AND deleted_at IS NULL
+		WHERE id = $1
 	`
 
 	tenant := &domain.Tenant{}
@@ -82,7 +82,7 @@ func (r *TenantRepository) GetByDocument(ctx context.Context, document string) (
 	query := `
 		SELECT id, name, document, plan, trial_until, active, created_at, updated_at
 		FROM tenants
-		WHERE document = $1 AND deleted_at IS NULL
+		WHERE document = $1
 	`
 
 	tenant := &domain.Tenant{}

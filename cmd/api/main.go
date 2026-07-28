@@ -64,6 +64,7 @@ func main() {
 	balanceRepo := repository.NewBalanceRepository(db)
 	importRepo := repository.NewImportRepository(db)
 	inviteRepo := repository.NewInviteRepository(db)
+	alertRepo := repository.NewAlertRepository(db)
 
 	// Initialize use cases
 	authUseCase := usecase.NewAuthUseCase(userRepo, tenantRepo, jwtService)
@@ -73,6 +74,8 @@ func main() {
 	ucUseCase := usecase.NewConsumingUnitUseCase(ucRepo)
 	balanceUseCase := usecase.NewBalanceUseCase(balanceRepo, transformerRepo, transformerReadingRepo, ucReadingRepo, ucRepo)
 	importUseCase := usecase.NewImportUseCase(ingestion.NewCSVParser(), importRepo, transformerReadingRepo, ucReadingRepo)
+	alertUseCase := usecase.NewAlertUseCase(alertRepo)
+	riskUseCase := usecase.NewRiskUseCase(balanceRepo, transformerRepo, ucRepo)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, signupUseCase)
@@ -81,11 +84,13 @@ func main() {
 	ucHandler := handler.NewConsumingUnitHandler(ucUseCase)
 	balanceHandler := handler.NewBalanceHandler(balanceUseCase)
 	importHandler := handler.NewImportHandler(importUseCase)
+	alertHandler := handler.NewAlertHandler(alertUseCase)
+	riskHandler := handler.NewRiskHandler(riskUseCase)
 	dashboardHandler := handler.NewDashboardHandler(transformerRepo, balanceRepo, ucRepo)
 	healthHandler := handler.NewHealthHandler("0.1.0")
 
 	// Initialize middleware
-	authMiddleware := middleware.NewAuthMiddleware(jwtService)
+	authMiddleware := middleware.NewAuthMiddleware(jwtService, db)
 
 	// Rate limiting
 	rateLimitRequests := getEnvAsInt("RATE_LIMIT_REQUESTS_PER_MINUTE", 60)
@@ -105,12 +110,15 @@ func main() {
 		ConsumingUnitHandler: ucHandler,
 		BalanceHandler:       balanceHandler,
 		ImportHandler:        importHandler,
+		AlertHandler:         alertHandler,
+		RiskHandler:          riskHandler,
 		DashboardHandler:     dashboardHandler,
 		HealthHandler:        healthHandler,
 		MetricsCollector:     metricsCollector,
 		AuthMiddleware:       authMiddleware,
 		RateLimiter:          rateLimiter,
 		SecurityMiddleware:   securityMiddleware,
+		CORSOrigins:          []string{"*"},
 	}
 
 	r := router.Setup(cfg)

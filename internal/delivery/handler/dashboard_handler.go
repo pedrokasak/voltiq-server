@@ -18,6 +18,24 @@ type DashboardHandler struct {
 	ucRepo          *repository.ConsumingUnitRepository
 }
 
+// TransformerCurrentStatus represents the current status of a transformer for quick dashboard
+type TransformerCurrentStatus struct {
+	TransformerID   string             `json:"transformer_id"`
+	Code            string             `json:"code"`
+	Status          domain.BalanceStatus `json:"status"`
+	LossPct         float64            `json:"loss_pct"`
+	LossLimitPct    float64            `json:"loss_limit_pct"`
+	EnergyInjectedKWh float64          `json:"energy_injected_kwh"`
+	TotalConsumptionKWh float64        `json:"total_consumption_kwh"`
+	LossKWh         float64            `json:"loss_kwh"`
+	UCCount         int                `json:"uc_count"`
+	PeriodStart     time.Time          `json:"period_start"`
+	PeriodEnd       time.Time          `json:"period_end"`
+	CalculatedAt    time.Time          `json:"calculated_at"`
+	IsOverloaded    bool               `json:"is_overloaded"`
+	OverloadPct     float64            `json:"overload_pct"`
+}
+
 // DashboardKPIs contains dashboard key performance indicators
 type DashboardKPIs struct {
 	TotalTransformers    int     `json:"total_transformers"`
@@ -112,6 +130,84 @@ func (h *DashboardHandler) GetKPIs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	request.WriteJSON(w, http.StatusOK, request.Success(kpis, ""))
+}
+
+// GetTransformerCurrentStatus returns the current status of all transformers for quick dashboard
+func (h *DashboardHandler) GetTransformerCurrentStatus(w http.ResponseWriter, r *http.Request) {
+	tenantID := middleware.GetTenantID(r.Context())
+
+	ctx := context.Background()
+
+	// Get all transformers for tenant
+	transformers, err := h.transformerRepo.GetByTenant(ctx, tenantID)
+	if err != nil {
+		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("LIST_ERROR", "failed to get transformers", nil))
+		return
+	}
+
+	var statuses []TransformerCurrentStatus
+
+	for _, t := range transformers {
+		latestBalance, err := h.balanceRepo.GetLatestByTransformer(ctx, t.ID)
+		if err != nil {
+			continue
+		}
+
+		if latestBalance == nil {
+			// No balance calculated yet
+			lossLimit := 10.0
+			if t.LossLimitPct != nil {
+				lossLimit = *t.LossLimitPct
+			}
+			status := TransformerCurrentStatus{
+				TransformerID: string(t.ID),
+				Code:          t.Code,
+				Status:        domain.BalanceStatusNormal,
+				LossPct:       0,
+				LossLimitPct:  lossLimit,
+				UCCount:       0,
+			}
+			statuses = append(statuses, status)
+			continue
+		}
+
+		// Get loss limit from transformer
+		lossLimit := 10.0
+		if t.LossLimitPct != nil {
+			lossLimit = *t.LossLimitPct
+		}
+
+		// Check if overloaded (loss exceeds limit)
+		limitPct := latestBalance.LossPct
+		if limitPct == 0 {
+			limitPct = lossLimit
+		}
+
+		overloadPct := 0.0
+		if limitPct > 0 {
+			overloadPct = (latestBalance.LossPct / limitPct) * 100
+		}
+
+		status := TransformerCurrentStatus{
+			TransformerID:       string(t.ID),
+			Code:                t.Code,
+			Status:              latestBalance.Status,
+			LossPct:             latestBalance.LossPct,
+			LossLimitPct:        lossLimit,
+			EnergyInjectedKWh:   latestBalance.EnergyInjectedKWh,
+			TotalConsumptionKWh: latestBalance.TotalConsumptionKWh,
+			LossKWh:             latestBalance.LossKWh,
+			UCCount:             latestBalance.UCCount,
+			PeriodStart:         latestBalance.PeriodStart,
+			PeriodEnd:           latestBalance.PeriodEnd,
+			CalculatedAt:        latestBalance.CalculatedAt,
+			IsOverloaded:        latestBalance.LossPct >= lossLimit,
+			OverloadPct:         overloadPct,
+		}
+		statuses = append(statuses, status)
+	}
+
+	request.WriteJSON(w, http.StatusOK, request.Success(statuses, ""))
 }
 
 // GetMonthlyLossHistory returns monthly loss history for dashboard charts

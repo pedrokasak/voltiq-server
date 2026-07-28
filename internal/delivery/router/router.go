@@ -20,6 +20,8 @@ type Config struct {
 	ConsumingUnitHandler *handler.ConsumingUnitHandler
 	BalanceHandler       *handler.BalanceHandler
 	ImportHandler        *handler.ImportHandler
+	AlertHandler         *handler.AlertHandler
+	RiskHandler          *handler.RiskHandler
 	DashboardHandler     *handler.DashboardHandler
 	HealthHandler        *handler.HealthHandler
 	MetricsCollector     *metrics.MetricsCollector
@@ -126,6 +128,24 @@ func Setup(cfg Config) *chi.Mux {
 				r.Post("/import", cfg.TransformerHandler.ImportCSV)
 			})
 
+			// Alert routes
+			r.Route("/alerts", func(r chi.Router) {
+				r.Post("/", cfg.AlertHandler.Create)
+				r.Get("/", cfg.AlertHandler.ListByTenant)
+				r.Get("/transformer/{transformer_id}", cfg.AlertHandler.GetByTransformer)
+				r.Get("/{id}", cfg.AlertHandler.GetByID)
+				r.Put("/{id}", cfg.AlertHandler.Update)
+				r.Delete("/{id}", cfg.AlertHandler.Delete)
+			})
+
+			// Risk routes
+			r.Route("/risk", func(r chi.Router) {
+				r.Get("/transformer/{transformer_id}/score", cfg.RiskHandler.GetRiskScore)
+				r.Get("/transformer/{transformer_id}/anomalies", cfg.RiskHandler.GetTransformerAnomalies)
+				r.Get("/all-scores", cfg.RiskHandler.GetAllRiskScores)
+				r.Get("/all-anomalies", cfg.RiskHandler.GetAllTransformersAnomalies)
+			})
+
 			// Consuming unit routes
 			r.Route("/consuming-units", func(r chi.Router) {
 				r.Post("/", cfg.ConsumingUnitHandler.Create)
@@ -166,6 +186,7 @@ func Setup(cfg Config) *chi.Mux {
 			r.Route("/dashboard", func(r chi.Router) {
 				r.Get("/kpis", cfg.DashboardHandler.GetKPIs)
 				r.Get("/monthly-loss", cfg.DashboardHandler.GetMonthlyLossHistory)
+				r.Get("/transformer-current-status", cfg.DashboardHandler.GetTransformerCurrentStatus)
 			})
 		})
 	})
