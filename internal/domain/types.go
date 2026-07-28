@@ -22,9 +22,10 @@ const (
 type UserRole string
 
 const (
-	UserRoleAdmin    UserRole = "ADMIN"
-	UserRoleEngineer UserRole = "ENGINEER"
-	UserRoleViewer   UserRole = "VIEWER"
+	UserRoleAdmin     UserRole = "ADMIN"
+	UserRoleEngineer  UserRole = "ENGINEER"
+	UserRoleViewer    UserRole = "VIEWER"
+	UserRoleSuperAdmin UserRole = "SUPER_ADMIN"
 )
 
 // UCClass represents the class of a consuming unit

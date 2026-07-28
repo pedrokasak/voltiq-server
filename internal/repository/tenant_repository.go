@@ -113,6 +113,49 @@ func (r *TenantRepository) GetByDocument(ctx context.Context, document string) (
 	return tenant, nil
 }
 
+// ListAll retrieves all tenants across the platform (cross-tenant, SUPER_ADMIN only)
+func (r *TenantRepository) ListAll(ctx context.Context) ([]*domain.Tenant, error) {
+	query := `
+		SELECT id, name, document, plan, trial_until, active, created_at, updated_at
+		FROM tenants
+		ORDER BY created_at DESC
+	`
+
+	rows, err := r.db.Pool.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tenants []*domain.Tenant
+	for rows.Next() {
+		tenant := &domain.Tenant{}
+		var trialUntil pgtype.Timestamptz
+
+		err := rows.Scan(
+			&tenant.ID,
+			&tenant.Name,
+			&tenant.Document,
+			&tenant.Plan,
+			&trialUntil,
+			&tenant.Active,
+			&tenant.CreatedAt,
+			&tenant.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if trialUntil.Valid {
+			tenant.TrialUntil = trialUntil.Time
+		}
+
+		tenants = append(tenants, tenant)
+	}
+
+	return tenants, nil
+}
+
 // Update updates an existing tenant
 func (r *TenantRepository) Update(ctx context.Context, tenant *domain.Tenant) error {
 	query := `

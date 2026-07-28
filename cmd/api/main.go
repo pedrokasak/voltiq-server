@@ -9,9 +9,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/voltiq/server/internal/delivery/handler"
 	"github.com/voltiq/server/internal/delivery/middleware"
 	"github.com/voltiq/server/internal/delivery/router"
+	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/ingestion"
 	"github.com/voltiq/server/internal/jwt"
 	"github.com/voltiq/server/internal/repository"
@@ -76,6 +80,13 @@ func main() {
 	importUseCase := usecase.NewImportUseCase(ingestion.NewCSVParser(), importRepo, transformerReadingRepo, ucReadingRepo)
 	alertUseCase := usecase.NewAlertUseCase(alertRepo)
 	riskUseCase := usecase.NewRiskUseCase(balanceRepo, transformerRepo, ucRepo)
+	exportUseCase := usecase.NewExportUseCase(balanceRepo, transformerRepo)
+	superAdminUseCase := usecase.NewSuperAdminUseCase(tenantRepo, userRepo)
+
+	// Seed a SUPER_ADMIN user in dev so /api/v1/admin/* can be exercised
+	if err := seedSuperAdminIfMissing(ctx, userRepo, tenantRepo); err != nil {
+		log.Printf("warning: failed to seed SUPER_ADMIN: %v", err)
+	}
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, signupUseCase)
@@ -87,6 +98,8 @@ func main() {
 	alertHandler := handler.NewAlertHandler(alertUseCase)
 	riskHandler := handler.NewRiskHandler(riskUseCase)
 	dashboardHandler := handler.NewDashboardHandler(transformerRepo, balanceRepo, ucRepo)
+	exportHandler := handler.NewExportHandler(exportUseCase)
+	superAdminHandler := handler.NewSuperAdminHandler(superAdminUseCase)
 	healthHandler := handler.NewHealthHandler("0.1.0")
 
 	// Initialize middleware
@@ -113,6 +126,8 @@ func main() {
 		AlertHandler:         alertHandler,
 		RiskHandler:          riskHandler,
 		DashboardHandler:     dashboardHandler,
+		ExportHandler:        exportHandler,
+		SuperAdminHandler:    superAdminHandler,
 		HealthHandler:        healthHandler,
 		MetricsCollector:     metricsCollector,
 		AuthMiddleware:       authMiddleware,
@@ -138,6 +153,65 @@ func main() {
 }
 
 // Helper functions
+func seedSuperAdminIfMissing(
+	ctx context.Context,
+	userRepo *repository.UserRepository,
+	tenantRepo *repository.TenantRepository,
+) error {
+	// Only seed in local development to avoid accidentally creating
+	// a platform-wide super-admin in production environments.
+	if os.Getenv("APP_ENV") == "production" {
+		return nil
+	}
+
+	const seedEmail = "super@admin.local"
+	const seedPassword = "SenhaForte123!"
+
+	existing, err := userRepo.GetByEmail(ctx, seedEmail)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return nil
+	}
+
+	// Use the first tenant on the platform as the SUPER_ADMIN's tenant.
+	// ListAll returns cross-tenant rows; if there is no tenant yet, abort
+	// silently — the operator can run /auth/signup first or create one.
+	tenants, err := tenantRepo.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+	if len(tenants) == 0 {
+		log.Printf("seed: no tenants available, skipping SUPER_ADMIN seed (run /auth/signup first)")
+		return nil
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(seedPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	admin := &domain.User{
+		ID:           domain.UUID(uuid.New().String()),
+		TenantID:     tenants[0].ID,
+		Email:        seedEmail,
+		Name:         "Voltiq Super Admin (dev)",
+		PasswordHash: string(hashed),
+		Role:         domain.UserRoleSuperAdmin,
+		Active:       true,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	if err := userRepo.Create(ctx, admin); err != nil {
+		return err
+	}
+	log.Printf("seed: SUPER_ADMIN created — email=%s password=%s (dev only)", seedEmail, seedPassword)
+	return nil
+}
+
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

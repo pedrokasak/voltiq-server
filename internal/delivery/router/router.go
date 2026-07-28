@@ -9,6 +9,7 @@ import (
 
 	"github.com/voltiq/server/internal/delivery/handler"
 	deliverymiddleware "github.com/voltiq/server/internal/delivery/middleware"
+	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/pkg/metrics"
 )
 
@@ -23,6 +24,8 @@ type Config struct {
 	AlertHandler         *handler.AlertHandler
 	RiskHandler          *handler.RiskHandler
 	DashboardHandler     *handler.DashboardHandler
+	ExportHandler        *handler.ExportHandler
+	SuperAdminHandler    *handler.SuperAdminHandler
 	HealthHandler        *handler.HealthHandler
 	MetricsCollector     *metrics.MetricsCollector
 	AuthMiddleware       *deliverymiddleware.AuthMiddleware
@@ -126,6 +129,20 @@ func Setup(cfg Config) *chi.Mux {
 				r.Get("/{id}/loss-analysis", cfg.TransformerHandler.LossAnalysis)
 				r.Get("/{id}/export", cfg.TransformerHandler.ExportCSV)
 				r.Post("/import", cfg.TransformerHandler.ImportCSV)
+				r.Post("/{id}/alert-config", cfg.AlertHandler.CreateForTransformer)
+			})
+
+			// Export routes (balance artifacts: PDF/Excel)
+			r.Route("/exports", func(r chi.Router) {
+				r.Get("/balance/{transformer_id}", cfg.ExportHandler.ExportBalance)
+			})
+
+			// Admin routes (SUPER_ADMIN only)
+			r.Route("/admin", func(r chi.Router) {
+				r.Use(cfg.AuthMiddleware.RoleMiddleware(domain.UserRoleSuperAdmin))
+				r.Get("/tenants", cfg.SuperAdminHandler.ListTenants)
+				r.Get("/tenants/{id}", cfg.SuperAdminHandler.GetTenantByID)
+				r.Get("/tenants/{id}/users", cfg.SuperAdminHandler.ListTenantUsers)
 			})
 
 			// Alert routes

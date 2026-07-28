@@ -42,8 +42,43 @@ func (h *AlertHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.TransformerID == "" || req.Type == "" || req.Channel == "" || req.Recipient == "" {
-		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "transformer_id, type, channel, and recipient are required", nil))
+	if req.TransformerID == "" {
+		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "transformer_id is required", nil))
+		return
+	}
+
+	h.createAlertFor(w, r, tenantID, domain.UUID(req.TransformerID), req)
+}
+
+// CreateForTransformer handles POST /api/v1/transformers/{id}/alert-config.
+// The transformer ID is read from the URL path, so the body does not need it.
+func (h *AlertHandler) CreateForTransformer(w http.ResponseWriter, r *http.Request) {
+	tenantID := middleware.GetTenantID(r.Context())
+	transformerID := chi.URLParam(r, "id")
+	if transformerID == "" {
+		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "id is required", nil))
+		return
+	}
+
+	var req AlertConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "invalid request body", nil))
+		return
+	}
+
+	h.createAlertFor(w, r, tenantID, domain.UUID(transformerID), req)
+}
+
+// createAlertFor centralizes validation and the usecase call for both Create paths
+func (h *AlertHandler) createAlertFor(
+	w http.ResponseWriter,
+	r *http.Request,
+	tenantID domain.UUID,
+	transformerID domain.UUID,
+	req AlertConfigRequest,
+) {
+	if req.Type == "" || req.Channel == "" || req.Recipient == "" {
+		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "type, channel, and recipient are required", nil))
 		return
 	}
 
@@ -61,7 +96,7 @@ func (h *AlertHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	alert, err := h.alertUseCase.CreateAlert(r.Context(), usecase.CreateAlertInput{
 		TenantID:      tenantID,
-		TransformerID: domain.UUID(req.TransformerID),
+		TransformerID: transformerID,
 		Type:          domain.AlertType(req.Type),
 		Channel:       domain.AlertChannel(req.Channel),
 		Recipient:     req.Recipient,
