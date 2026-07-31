@@ -26,11 +26,13 @@ type Config struct {
 	DashboardHandler     *handler.DashboardHandler
 	ExportHandler        *handler.ExportHandler
 	SuperAdminHandler    *handler.SuperAdminHandler
+	FinancialHandler     *handler.FinancialHandler
 	HealthHandler        *handler.HealthHandler
 	MetricsCollector     *metrics.MetricsCollector
 	AuthMiddleware       *deliverymiddleware.AuthMiddleware
 	RateLimiter          *deliverymiddleware.RateLimiter
 	SecurityMiddleware   *deliverymiddleware.SecurityMiddleware
+	TenantStatusMiddleware *deliverymiddleware.TenantStatusMiddleware
 	CORSOrigins          []string
 }
 
@@ -95,6 +97,11 @@ func Setup(cfg Config) *chi.Mux {
 		r.Group(func(r chi.Router) {
 			r.Use(cfg.AuthMiddleware.Chain())
 
+			// Apply TenantStatusMiddleware to all protected routes EXCEPT admin
+			if cfg.TenantStatusMiddleware != nil {
+				r.Use(cfg.TenantStatusMiddleware.Handler)
+			}
+
 			// Invite routes (auth required)
 			r.Post("/invites", cfg.InviteHandler.CreateInvite)
 			r.Delete("/invites/{id}", cfg.InviteHandler.CancelInvite)
@@ -135,14 +142,6 @@ func Setup(cfg Config) *chi.Mux {
 			// Export routes (balance artifacts: PDF/Excel)
 			r.Route("/exports", func(r chi.Router) {
 				r.Get("/balance/{transformer_id}", cfg.ExportHandler.ExportBalance)
-			})
-
-			// Admin routes (SUPER_ADMIN only)
-			r.Route("/admin", func(r chi.Router) {
-				r.Use(cfg.AuthMiddleware.RoleMiddleware(domain.UserRoleSuperAdmin))
-				r.Get("/tenants", cfg.SuperAdminHandler.ListTenants)
-				r.Get("/tenants/{id}", cfg.SuperAdminHandler.GetTenantByID)
-				r.Get("/tenants/{id}/users", cfg.SuperAdminHandler.ListTenantUsers)
 			})
 
 			// Alert routes
@@ -204,7 +203,32 @@ func Setup(cfg Config) *chi.Mux {
 				r.Get("/kpis", cfg.DashboardHandler.GetKPIs)
 				r.Get("/monthly-loss", cfg.DashboardHandler.GetMonthlyLossHistory)
 				r.Get("/transformer-current-status", cfg.DashboardHandler.GetTransformerCurrentStatus)
+				// New advanced dashboard endpoints
+				r.Get("/kpi-sparklines", cfg.DashboardHandler.GetKPISparklines)
+				r.Get("/loss-evolution", cfg.DashboardHandler.GetLossEvolution)
+				r.Get("/loss-composition", cfg.DashboardHandler.GetLossComposition)
+				r.Get("/status-distribution", cfg.DashboardHandler.GetTransformerStatusDistribution)
+				r.Get("/quarterly-injected-billed", cfg.DashboardHandler.GetQuarterlyInjectedBilled)
+				r.Get("/accumulated-loss-cost", cfg.DashboardHandler.GetAccumulatedLossCost)
+				r.Get("/top-transformers", cfg.DashboardHandler.GetTopTransformersByLoss)
+				// Financial table - requires financial access
+				r.Group(func(r chi.Router) {
+					r.Use(deliverymiddleware.RequireFinancialAccess)
+					r.Get("/financial-table", cfg.DashboardHandler.GetFinancialTable)
+				})
 			})
+		})
+
+		// Admin routes (SUPER_ADMIN only) - OUTSIDE TenantStatusMiddleware
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(cfg.AuthMiddleware.Chain())
+			r.Use(cfg.AuthMiddleware.RoleMiddleware(domain.UserRoleSuperAdmin))
+			r.Get("/tenants", cfg.SuperAdminHandler.ListTenants)
+			r.Get("/tenants/{id}", cfg.SuperAdminHandler.GetTenantByID)
+			r.Get("/tenants/{id}/users", cfg.SuperAdminHandler.ListTenantUsers)
+			r.Post("/tenants/{id}/activate", cfg.SuperAdminHandler.ActivateTenant)
+			r.Patch("/tenants/{id}/plan", cfg.SuperAdminHandler.UpdateTenantPlan)
+			r.Patch("/tenants/{id}/status", cfg.SuperAdminHandler.UpdateTenantStatus)
 		})
 	})
 

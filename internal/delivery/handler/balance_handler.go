@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/voltiq/server/internal/delivery/middleware"
 	"github.com/voltiq/server/internal/delivery/request"
 	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/usecase"
@@ -69,7 +70,11 @@ func (h *BalanceHandler) Calculate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	request.WriteJSON(w, http.StatusOK, request.Success(output.Balance, "balance calculated successfully"))
+	// Aplica field-level permission
+	role := domain.UserRole(middleware.GetRole(r.Context()))
+	response := middleware.GetBalanceDTO(output.Balance, role)
+
+	request.WriteJSON(w, http.StatusOK, request.Success(response, "balance calculated successfully"))
 }
 
 // ListByTransformer handles listing balances for a transformer
@@ -104,7 +109,14 @@ func (h *BalanceHandler) ListByTransformer(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	request.WriteJSON(w, http.StatusOK, request.Success(balances, ""))
+	// Aplica field-level permission
+	role := domain.UserRole(middleware.GetRole(r.Context()))
+	var response []any
+	for _, b := range balances {
+		response = append(response, middleware.GetBalanceDTO(b, role))
+	}
+
+	request.WriteJSON(w, http.StatusOK, request.Success(response, ""))
 }
 
 // Latest handles getting the latest balance for a transformer
@@ -121,7 +133,11 @@ func (h *BalanceHandler) Latest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	request.WriteJSON(w, http.StatusOK, request.Success(balance, ""))
+	// Aplica field-level permission
+	role := domain.UserRole(middleware.GetRole(r.Context()))
+	response := middleware.GetBalanceDTO(balance, role)
+
+	request.WriteJSON(w, http.StatusOK, request.Success(response, ""))
 }
 
 // TechnicalLoss handles calculating technical losses according to PRODIST M7
@@ -160,5 +176,6 @@ func (h *BalanceHandler) TechnicalLoss(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TechnicalLoss returns technical data (not financial), so no field-level filter needed
 	request.WriteJSON(w, http.StatusOK, request.Success(result, ""))
 }

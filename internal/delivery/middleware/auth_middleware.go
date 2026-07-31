@@ -16,6 +16,7 @@ type contextKey string
 const (
 	UserIDKey   contextKey = "user_id"
 	TenantIDKey contextKey = "tenant_id"
+	TenantKey   contextKey = "tenant"
 	EmailKey    contextKey = "email"
 	RoleKey     contextKey = "role"
 )
@@ -128,4 +129,20 @@ func (m *AuthMiddleware) Chain() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return m.Handler(next)
 	}
+}
+
+// GetTenant extracts tenant from context
+func GetTenant(ctx context.Context) *domain.Tenant {
+	if tenant, ok := ctx.Value(TenantKey).(*domain.Tenant); ok {
+		return tenant
+	}
+	return nil
+}
+
+// GetUserRole extracts user role from context
+func GetUserRole(ctx context.Context) string {
+	if role, ok := ctx.Value(RoleKey).(string); ok {
+		return role
+	}
+	return ""
 }

@@ -74,6 +74,20 @@ func (uc *InviteUseCase) CreateInvite(ctx context.Context, input CreateInviteInp
 		return nil, ErrEmailAlreadyInUse
 	}
 
+	// Validate seat limit before creating invite
+	tenant, err := uc.tenantRepo.GetByID(ctx, input.TenantID)
+	if err != nil {
+		return nil, errors.New("failed to get tenant")
+	}
+	if tenant == nil {
+		return nil, errors.New("tenant not found")
+	}
+
+	// Check seat limit if max_users is set
+	if tenant.MaxUsers > 0 && tenant.SeatCount >= tenant.MaxUsers {
+		return nil, ErrSeatLimitExceeded
+	}
+
 	token := uuid.New().String()
 	expiresAt := time.Now().Add(7 * 24 * time.Hour)
 

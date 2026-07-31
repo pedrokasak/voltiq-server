@@ -17,6 +17,7 @@ import (
 	"github.com/voltiq/server/internal/delivery/router"
 	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/ingestion"
+	"github.com/voltiq/server/internal/jobs"
 	"github.com/voltiq/server/internal/jwt"
 	"github.com/voltiq/server/internal/repository"
 	"github.com/voltiq/server/internal/usecase"
@@ -25,6 +26,12 @@ import (
 
 func main() {
 	ctx := context.Background()
+
+	// Handle cron command for scheduled jobs
+	if len(os.Args) > 1 && os.Args[1] == "cron" {
+		runCronJobs(ctx)
+		return
+	}
 
 	// Load environment variables
 	databaseURL := getEnv("DATABASE_URL", "")
@@ -82,6 +89,7 @@ func main() {
 	riskUseCase := usecase.NewRiskUseCase(balanceRepo, transformerRepo, ucRepo)
 	exportUseCase := usecase.NewExportUseCase(balanceRepo, transformerRepo)
 	superAdminUseCase := usecase.NewSuperAdminUseCase(tenantRepo, userRepo)
+	financialUseCase := usecase.NewFinancialUseCase(balanceRepo, transformerRepo)
 
 	// Seed a SUPER_ADMIN user in dev so /api/v1/admin/* can be exercised
 	if err := seedSuperAdminIfMissing(ctx, userRepo, tenantRepo); err != nil {
@@ -100,10 +108,14 @@ func main() {
 	dashboardHandler := handler.NewDashboardHandler(transformerRepo, balanceRepo, ucRepo)
 	exportHandler := handler.NewExportHandler(exportUseCase)
 	superAdminHandler := handler.NewSuperAdminHandler(superAdminUseCase)
+	financialHandler := handler.NewFinancialHandler(financialUseCase)
 	healthHandler := handler.NewHealthHandler("0.1.0")
 
 	// Initialize middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtService, db)
+
+	// Tenant status middleware
+	tenantStatusMiddleware := middleware.NewTenantStatusMiddleware(tenantRepo)
 
 	// Rate limiting
 	rateLimitRequests := getEnvAsInt("RATE_LIMIT_REQUESTS_PER_MINUTE", 60)
@@ -117,23 +129,25 @@ func main() {
 
 	// Setup router
 	cfg := router.Config{
-		AuthHandler:          authHandler,
-		InviteHandler:        inviteHandler,
-		TransformerHandler:   transformerHandler,
-		ConsumingUnitHandler: ucHandler,
-		BalanceHandler:       balanceHandler,
-		ImportHandler:        importHandler,
-		AlertHandler:         alertHandler,
-		RiskHandler:          riskHandler,
-		DashboardHandler:     dashboardHandler,
-		ExportHandler:        exportHandler,
-		SuperAdminHandler:    superAdminHandler,
-		HealthHandler:        healthHandler,
-		MetricsCollector:     metricsCollector,
-		AuthMiddleware:       authMiddleware,
-		RateLimiter:          rateLimiter,
-		SecurityMiddleware:   securityMiddleware,
-		CORSOrigins:          []string{"*"},
+		AuthHandler:             authHandler,
+		InviteHandler:           inviteHandler,
+		TransformerHandler:      transformerHandler,
+		ConsumingUnitHandler:    ucHandler,
+		BalanceHandler:          balanceHandler,
+		ImportHandler:           importHandler,
+		AlertHandler:            alertHandler,
+		RiskHandler:             riskHandler,
+		DashboardHandler:        dashboardHandler,
+		ExportHandler:           exportHandler,
+		SuperAdminHandler:       superAdminHandler,
+		FinancialHandler:        financialHandler,
+		HealthHandler:           healthHandler,
+		MetricsCollector:        metricsCollector,
+		AuthMiddleware:          authMiddleware,
+		TenantStatusMiddleware:  tenantStatusMiddleware,
+		RateLimiter:             rateLimiter,
+		SecurityMiddleware:      securityMiddleware,
+		CORSOrigins:             []string{"*"},
 	}
 
 	r := router.Setup(cfg)
@@ -226,4 +240,34 @@ func getEnvAsInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+func runCronJobs(ctx context.Context) {
+	databaseURL := getEnv("DATABASE_URL", "")
+	if databaseURL == "" {
+		dbHost := getEnv("DATABASE_HOST", "localhost")
+		dbPort := getEnv("DATABASE_PORT", "5432")
+		dbUser := getEnv("DATABASE_USER", "postgres")
+		dbPassword := getEnv("DATABASE_PASSWORD", "postgres")
+		dbName := getEnv("DATABASE_NAME", "voltiq-sw")
+		dbSSLMode := getEnv("DATABASE_SSL_MODE", "disable")
+
+		databaseURL = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+			dbUser, dbPassword, dbHost, dbPort, dbName, dbSSLMode)
+	}
+
+	db, err := repository.NewDatabase(ctx)
+	if err != nil {
+		log.Fatalf("failed to connect to database: %v", err)
+	}
+	defer db.Close()
+
+	tenantRepo := repository.NewTenantRepository(db)
+	job := jobs.NewTrialExpirationJob(tenantRepo)
+
+	log.Println("Running TrialExpirationJob...")
+	if err := job.Run(ctx); err != nil {
+		log.Fatalf("TrialExpirationJob failed: %v", err)
+	}
+	log.Println("TrialExpirationJob completed successfully")
 }

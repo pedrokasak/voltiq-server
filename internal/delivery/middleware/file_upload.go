@@ -48,6 +48,7 @@ func NewFileUploadMiddleware(config FileUploadConfig) *FileUploadMiddleware {
 	if config.AllowedMimeTypes == nil {
 		config.AllowedMimeTypes = []string{
 			"text/csv",
+			"text/plain",
 			"application/vnd.ms-excel",
 		}
 	}
