@@ -216,3 +216,47 @@ func (r *UserRepository) Delete(ctx context.Context, id domain.UUID) error {
 	_, err := r.db.Pool.Exec(ctx, query, time.Now(), time.Now(), id)
 	return err
 }
+
+// GetByTenantAndRole retrieves a user by tenant and role
+func (r *UserRepository) GetByTenantAndRole(ctx context.Context, tenantID domain.UUID, role domain.UserRole) (*domain.User, error) {
+	query := `
+		SELECT id, tenant_id, email, name, password_hash, role, active, last_login, created_at, updated_at, deleted_at
+		FROM users
+		WHERE tenant_id = $1 AND role = $2 AND deleted_at IS NULL
+		LIMIT 1
+	`
+
+	user := &domain.User{}
+	var lastLogin pgtype.Timestamptz
+	var deletedAt pgtype.Timestamptz
+
+	err := r.db.Pool.QueryRow(ctx, query, tenantID, role).Scan(
+		&user.ID,
+		&user.TenantID,
+		&user.Email,
+		&user.Name,
+		&user.PasswordHash,
+		&user.Role,
+		&user.Active,
+		&lastLogin,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+		&deletedAt,
+	)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if lastLogin.Valid {
+		user.LastLogin = &lastLogin.Time
+	}
+	if deletedAt.Valid {
+		user.DeletedAt = &deletedAt.Time
+	}
+
+	return user, nil
+}

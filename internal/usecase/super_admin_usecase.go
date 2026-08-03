@@ -2,21 +2,11 @@ package usecase
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/repository"
 )
-
-// ErrTenantNotFound indicates the tenant does not exist
-var ErrTenantNotFound = errors.New("tenant not found")
-
-// ErrTenantAlreadyActive indicates the tenant is already active
-var ErrTenantAlreadyActive = errors.New("tenant is already active")
-
-// ErrSeatLimitExceeded indicates the seat limit would be exceeded
-var ErrSeatLimitExceeded = errors.New("seat limit exceeded - upgrade plan to add more users")
 
 // SuperAdminUseCase handles cross-tenant administrative operations.
 // Access is gated by the SUPER_ADMIN role at the router level.

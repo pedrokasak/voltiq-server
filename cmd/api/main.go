@@ -12,13 +12,16 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/voltiq/server/internal/config"
 	"github.com/voltiq/server/internal/delivery/handler"
 	"github.com/voltiq/server/internal/delivery/middleware"
 	"github.com/voltiq/server/internal/delivery/router"
 	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/email"
 	"github.com/voltiq/server/internal/ingestion"
 	"github.com/voltiq/server/internal/jobs"
 	"github.com/voltiq/server/internal/jwt"
+	"github.com/voltiq/server/internal/payment"
 	"github.com/voltiq/server/internal/repository"
 	"github.com/voltiq/server/internal/usecase"
 	"github.com/voltiq/server/pkg/metrics"
@@ -77,6 +80,38 @@ func main() {
 	inviteRepo := repository.NewInviteRepository(db)
 	alertRepo := repository.NewAlertRepository(db)
 
+	// Initialize new billing repositories
+	webhookRepo := repository.NewWebhookEventRepository(db)
+	dunningRepo := repository.NewDunningRepository(db)
+	metricsRepo := repository.NewMetricsRepository(db)
+	prorationRepo := repository.NewProrationRepository(db)
+
+	// Initialize payment provider
+	asaasAPIKey := getEnv("ASAAS_API_KEY", "")
+	asaasWebhookKey := getEnv("ASAAS_WEBHOOK_KEY", "")
+	asaasSandbox := getEnv("ASAAS_SANDBOX", "true") == "true"
+
+	var paymentProvider payment.PaymentProvider
+	if asaasAPIKey != "" {
+		paymentProvider = payment.NewAsaasProvider(asaasAPIKey, asaasWebhookKey, asaasSandbox)
+		log.Printf("Asaas payment provider initialized (sandbox=%v)", asaasSandbox)
+	} else {
+		log.Printf("WARNING: ASAAS_API_KEY not set, payment features disabled")
+	}
+
+	// Initialize email provider and templates
+	emailConfig := config.LoadEmailConfig()
+	var emailProvider email.EmailProvider
+	var emailTemplates *email.TemplateLoader
+
+	if emailConfig.ResendAPIKey != "" {
+		emailProvider = email.NewResendProvider(emailConfig)
+		emailTemplates, _ = email.NewTemplateLoader()
+		log.Printf("Resend email provider initialized")
+	} else {
+		log.Printf("WARNING: RESEND_API_KEY not set, email features disabled")
+	}
+
 	// Initialize use cases
 	authUseCase := usecase.NewAuthUseCase(userRepo, tenantRepo, jwtService)
 	signupUseCase := usecase.NewSignupUseCase(tenantRepo, userRepo)
@@ -90,6 +125,7 @@ func main() {
 	exportUseCase := usecase.NewExportUseCase(balanceRepo, transformerRepo)
 	superAdminUseCase := usecase.NewSuperAdminUseCase(tenantRepo, userRepo)
 	financialUseCase := usecase.NewFinancialUseCase(balanceRepo, transformerRepo)
+	billingUseCase := usecase.NewBillingUseCase(tenantRepo, userRepo, paymentProvider, webhookRepo, dunningRepo, metricsRepo, prorationRepo, emailProvider, emailTemplates)
 
 	// Seed a SUPER_ADMIN user in dev so /api/v1/admin/* can be exercised
 	if err := seedSuperAdminIfMissing(ctx, userRepo, tenantRepo); err != nil {
@@ -109,6 +145,8 @@ func main() {
 	exportHandler := handler.NewExportHandler(exportUseCase)
 	superAdminHandler := handler.NewSuperAdminHandler(superAdminUseCase)
 	financialHandler := handler.NewFinancialHandler(financialUseCase)
+	billingHandler := handler.NewBillingHandler(billingUseCase)
+	webhookHandler := handler.NewWebhookHandler(billingUseCase, paymentProvider)
 	healthHandler := handler.NewHealthHandler("0.1.0")
 
 	// Initialize middleware
@@ -141,6 +179,8 @@ func main() {
 		ExportHandler:           exportHandler,
 		SuperAdminHandler:       superAdminHandler,
 		FinancialHandler:        financialHandler,
+		BillingHandler:          billingHandler,
+		WebhookHandler:          webhookHandler,
 		HealthHandler:           healthHandler,
 		MetricsCollector:        metricsCollector,
 		AuthMiddleware:          authMiddleware,
@@ -263,11 +303,55 @@ func runCronJobs(ctx context.Context) {
 	defer db.Close()
 
 	tenantRepo := repository.NewTenantRepository(db)
-	job := jobs.NewTrialExpirationJob(tenantRepo)
+	webhookRepo := repository.NewWebhookEventRepository(db)
+	dunningRepo := repository.NewDunningRepository(db)
+	metricsRepo := repository.NewMetricsRepository(db)
 
+	// Initialize email provider for cron jobs
+	emailConfig := config.LoadEmailConfig()
+	var emailProvider email.EmailProvider
+	var emailTemplates *email.TemplateLoader
+
+	if emailConfig.ResendAPIKey != "" {
+		emailProvider = email.NewResendProvider(emailConfig)
+		emailTemplates, _ = email.NewTemplateLoader()
+		log.Printf("Resend email provider initialized for cron")
+	} else {
+		log.Printf("WARNING: RESEND_API_KEY not set, email features disabled for cron")
+	}
+
+	// Run TrialExpirationJob
+	job := jobs.NewTrialExpirationJob(tenantRepo)
 	log.Println("Running TrialExpirationJob...")
 	if err := job.Run(ctx); err != nil {
 		log.Fatalf("TrialExpirationJob failed: %v", err)
 	}
 	log.Println("TrialExpirationJob completed successfully")
+
+	// Run DunningJob
+	billingUseCase := usecase.NewBillingUseCase(tenantRepo, nil, nil, webhookRepo, dunningRepo, metricsRepo, nil, emailProvider, emailTemplates)
+	log.Println("Running DunningJob...")
+	if err := billingUseCase.RunDunningJob(ctx); err != nil {
+		log.Printf("DunningJob failed: %v", err)
+	} else {
+		log.Println("DunningJob completed successfully")
+	}
+
+	// Run WebhookRetryJob
+	webhookRetryJob := jobs.NewWebhookRetryJob(webhookRepo)
+	log.Println("Running WebhookRetryJob...")
+	if err := webhookRetryJob.Run(ctx); err != nil {
+		log.Printf("WebhookRetryJob failed: %v", err)
+	} else {
+		log.Println("WebhookRetryJob completed successfully")
+	}
+
+	// Run MetricsJob (for yesterday)
+	yesterday := time.Now().AddDate(0, 0, -1)
+	log.Println("Running MetricsJob...")
+	if err := billingUseCase.RunMetricsJob(ctx, yesterday); err != nil {
+		log.Printf("MetricsJob failed: %v", err)
+	} else {
+		log.Println("MetricsJob completed successfully")
+	}
 }

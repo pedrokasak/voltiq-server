@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pagamento em atraso - 1º Aviso</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f7f9fc;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+        <!-- Header -->
+        <div style="text-align: center; padding: 20px 0;">
+            <div style="display: inline-block; background: linear-gradient(135deg, #1a7a4a 0%, #0d5a35 100%); padding: 16px; border-radius: 12px;">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" style="display: block; margin: 0 auto;">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+            </div>
+            <h1 style="margin: 20px 0 8px; color: #1e1e2e; font-size: 24px; font-weight: 700;">Pagamento em atraso</h1>
+            <p style="margin: 0; color: #64748b; font-size: 16px;">1º aviso — {{.plan_name}}</p>
+        </div>
+
+        <!-- Alert Banner -->
+        <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 16px; margin: 24px 0;">
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+                <div style="flex-shrink: 0; width: 24px; height: 24px; background: #f59e0b; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" style="display: block; margin: auto;">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                </div>
+                <div>
+                    <p style="margin: 0 0 8px; color: #92400e; font-weight: 600; font-size: 15px;">Pagamento em atraso detectado</p>
+                    <p style="margin: 0; color: #92400e; font-size: 14px;">Identificamos que o pagamento do seu plano <strong>{{.plan_name}}</strong> com vencimento em <strong>{{.due_date}}</strong> não foi confirmado.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Details Card -->
+        <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin: 24px 0;">
+            <h2 style="margin: 0 0 20px; color: #1e1e2e; font-size: 18px; font-weight: 600;">Detalhes do pagamento</h2>
+
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 12px 0; color: #64748b; font-size: 14px; border-bottom: 1px solid #e2e8f0;">Plano</td>
+                    <td style="padding: 12px 0; color: #1e1e2e; font-size: 14px; font-weight: 500; text-align: right; border-bottom: 1px solid #e2e8f0;">{{.plan_name}}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 12px 0; color: #64748b; font-size: 14px; border-bottom: 1px solid #e2e8f0;">Valor</td>
+                    <td style="padding: 12px 0; color: #1e1e2e; font-size: 14px; font-weight: 600; text-align: right; border-bottom: 1px solid #e2e8f0;">{{.amount}}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 12px 0; color: #64748b; font-size: 14px; border-bottom: 1px solid #e2e8f0;">Data de vencimento</td>
+                    <td style="padding: 12px 0; color: #1e1e2e; font-size: 14px; font-weight: 500; text-align: right; border-bottom: 1px solid #e2e8f0;">{{.due_date}}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 12px 0; color: #64748b; font-size: 14px; border-bottom: 1px solid #e2e8f0;">Dias em atraso</td>
+                    <td style="padding: 12px 0; color: #dc2626; font-size: 14px; font-weight: 600; text-align: right;">{{.days_overdue}} dias</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- Action Button -->
+        <div style="text-align: center; margin: 32px 0;">
+            <a href="{{.BillingURL}}" style="display: inline-block; background: linear-gradient(135deg, #1a7a4a 0%, #0d5a35 100%); color: white; padding: 16px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; box-shadow: 0 4px 14px rgba(26, 122, 74, 0.3);">
+                Regularizar pagamento agora
+            </a>
+            <p style="margin: 16px 0 0; color: #64748b; font-size: 14px;">Opções: PIX, Boleto ou Cartão de crédito</p>
+        </div>
+
+        <!-- Warning -->
+        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 24px 0;">
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" style="flex-shrink: 0; margin-top: 2px;">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                <div>
+                    <p style="margin: 0 0 8px; color: #991b1b; font-weight: 600; font-size: 14px;">Importante</p>
+                    <p style="margin: 0; color: #991b1b; font-size: 13px; line-height: 1.5;">Este é o <strong>1º aviso</strong>. Se o pagamento não for regularizado em <strong>15 dias</strong>, seu acesso ao sistema será suspenso conforme nossos Termos de Uso. Próximos avisos: D+7 e D+15.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Support -->
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 24px; margin-top: 24px;">
+            <p style="margin: 0 0 8px; color: #64748b; font-size: 14px;">Precisa de ajuda?</p>
+            <p style="margin: 0; color: #1a7a4a; font-size: 14px; font-weight: 500;">Entre em contato: <a href="mailto:{{.support_email}}" style="color: #1a7a4a; text-decoration: none;">{{.support_email}}</a></p>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align: center; padding: 24px 0; color: #94a3b8; font-size: 12px;">
+        <p style="margin: 0 0 4px;">{{.company_name}} - Cálculo de balanço de energia e perdas técnicas (PRODIST Módulo 7)</p>
+        <p style="margin: 0;">© {{.current_year}} {{.company_name}}. Todos os direitos reservados.</p>
+    </div>
+</body>
+</html>

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ÚLTIMO AVISO - Suspensão amanhã</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f7f9fc;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+        <!-- Header -->
+        <div style="text-align: center; padding: 20px 0;">
+            <div style="display: inline-block; background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); padding: 16px; border-radius: 12px;">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" style="display: block; margin: 0 auto;">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+            </div>
+            <h1 style="margin: 20px 0 8px; color: #1e1e2e; font-size: 24px; font-weight: 700;">ÚLTIMO AVISO</h1>
+            <p style="margin: 0; color: #dc2626; font-size: 18px; font-weight: 600;">Suspensão automática amanhã — {{.plan_name}}</p>
+        </div>
+
+        <!-- Critical Alert Banner -->
+        <div style="background: #fef2f2; border: 2px solid #ef4444; border-radius: 12px; padding: 24px; margin: 24px 0;">
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+                <div style="flex-shrink: 0; width: 32px; height: 32px; background: #dc2626; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" style="display: block; margin: auto;">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                </div>
+                <div>
+                    <p style="margin: 0 0 8px; color: #991b1b; font-weight: 700; font-size: 18px;">AÇÃO URGENTE NECESSÁRIA</p>
+                    <p style="margin: 0; color: #991b1b; font-size: 15px; line-height: 1.6;">Seu acesso ao Voltiq será <strong>suspenso automaticamente amanhã</strong> se o pagamento não for regularizado <strong>hoje</strong>.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Details Card -->
+        <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin: 24px 0;">
+            <h2 style="margin: 0 0 20px; color: #1e1e2e; font-size: 18px; font-weight: 600;">Detalhes do pagamento em atraso</h2>
+
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 12px 0; color: #64748b; font-size: 14px; border-bottom: 1px solid #e2e8f0;">Plano</td>
+                    <td style="padding: 12px 0; color: #1e1e2e; font-size: 14px; font-weight: 500; text-align: right; border-bottom: 1px solid #e2e8f0;">{{.plan_name}}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 12px 0; color: #64748b; font-size: 14px; border-bottom: 1px solid #e2e8f0;">Valor</td>
+                    <td style="padding: 12px 0; color: #1e1e2e; font-size: 14px; font-weight: 600; text-align: right; border-bottom: 1px solid #e2e8f0;">{{.amount}}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 12px 0; color: #64748b; font-size: 14px; border-bottom: 1px solid #e2e8f0;">Data de vencimento</td>
+                    <td style="padding: 12px 0; color: #1e1e2e; font-size: 14px; font-weight: 500; text-align: right; border-bottom: 1px solid #e2e8f0;">{{.due_date}}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 12px 0; color: #64748b; font-size: 14px;">Dias em atraso</td>
+                    <td style="padding: 12px 0; color: #dc2626; font-size: 14px; font-weight: 700; text-align: right;">{{.days_overdue}} dias</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- Action Button - High Priority -->
+        <div style="text-align: center; margin: 32px 0;">
+            <a href="{{.BillingURL}}" style="display: inline-block; background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); color: white; padding: 18px 40px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 18px; box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4);">
+                PAGAR AGORA - EVITAR SUSPENSÃO
+            </a>
+            <p style="margin: 16px 0 0; color: #dc2626; font-size: 14px; font-weight: 500;">Opções: PIX (instantâneo), Boleto ou Cartão de crédito</p>
+        </div>
+
+        <!-- What happens next -->
+        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 20px; margin: 24px 0;">
+            <h3 style="margin: 0 0 12px; color: #991b1b; font-size: 15px; font-weight: 600;">O que acontece se não pagar hoje:</h3>
+            <ul style="margin: 0; padding-left: 20px; color: #991b1b; font-size: 14px; line-height: 1.8;">
+                <li>Sua conta será <strong>suspensa automaticamente</strong> amanhã</li>
+                <li>Todos os usuários da sua organização perderão acesso ao sistema</li>
+                <li>Os dados de balanço de energia e relatórios ficarão indisponíveis</li>
+                <li>Para reativar, será necessário pagar o valor em atraso + taxa de reativação</li>
+            </ul>
+        </div>
+
+        <!-- Support - Highlighted -->
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin: 24px 0;">
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" style="flex-shrink: 0; margin-top: 2px;">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M9 12l2 2 4-4"></path>
+                </svg>
+                <div>
+                    <p style="margin: 0 0 8px; color: #166534; font-weight: 600; font-size: 15px;">Precisa de ajuda urgente?</p>
+                    <p style="margin: 0 0 8px; color: #166534; font-size: 14px;">Responda a este e-mail ou entre em contato:</p>
+                    <a href="mailto:{{.support_email}}" style="display: inline-block; background: #16a34a; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px;">{{.support_email}}</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align: center; padding: 24px 0; color: #94a3b8; font-size: 12px;">
+        <p style="margin: 0 0 4px;">{{.company_name}} - Cálculo de balanço de energia e perdas técnicas (PRODIST Módulo 7)</p>
+        <p style="margin: 0;">© {{.current_year}} {{.company_name}}. Todos os direitos reservados.</p>
+    </div>
+</body>
+</html>

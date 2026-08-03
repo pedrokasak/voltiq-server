@@ -27,6 +27,8 @@ type Config struct {
 	ExportHandler        *handler.ExportHandler
 	SuperAdminHandler    *handler.SuperAdminHandler
 	FinancialHandler     *handler.FinancialHandler
+	BillingHandler       *handler.BillingHandler
+	WebhookHandler       *handler.WebhookHandler
 	HealthHandler        *handler.HealthHandler
 	MetricsCollector     *metrics.MetricsCollector
 	AuthMiddleware       *deliverymiddleware.AuthMiddleware
@@ -91,6 +93,11 @@ func Setup(cfg Config) *chi.Mux {
 			r.Post("/auth/logout", cfg.AuthHandler.Logout)
 			r.Get("/invites/{token}", cfg.InviteHandler.ValidateInvite)
 			r.Post("/invites/{token}/accept", cfg.InviteHandler.AcceptInvite)
+
+			// Webhook endpoints (public, verified by signature)
+			r.Route("/webhooks", func(r chi.Router) {
+				r.Post("/asaas", cfg.WebhookHandler.HandleAsaasWebhook)
+			})
 		})
 
 		// Protected routes
@@ -216,6 +223,15 @@ func Setup(cfg Config) *chi.Mux {
 					r.Use(deliverymiddleware.RequireFinancialAccess)
 					r.Get("/financial-table", cfg.DashboardHandler.GetFinancialTable)
 				})
+			})
+
+			// Billing routes
+			r.Route("/billing", func(r chi.Router) {
+				r.Get("/", cfg.BillingHandler.GetBillingInfo)
+				r.Post("/activate", cfg.BillingHandler.ActivatePlan)
+				r.Patch("/plan", cfg.BillingHandler.ChangePlan)
+				r.Post("/cancel", cfg.BillingHandler.CancelSubscription)
+				r.Get("/payments", cfg.BillingHandler.GetPaymentHistory)
 			})
 		})
 
