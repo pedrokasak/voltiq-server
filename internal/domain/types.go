@@ -22,9 +22,12 @@ const (
 type UserRole string
 
 const (
-	UserRoleAdmin    UserRole = "ADMIN"
-	UserRoleEngineer UserRole = "ENGINEER"
-	UserRoleViewer   UserRole = "VIEWER"
+	UserRoleSuperAdmin UserRole = "SUPER_ADMIN"
+	UserRoleOwner      UserRole = "OWNER"
+	UserRoleAdmin      UserRole = "ADMIN"
+	UserRoleManager    UserRole = "MANAGER"
+	UserRoleEngineer   UserRole = "ENGINEER"
+	UserRoleViewer     UserRole = "VIEWER"
 )
 
 // UCClass represents the class of a consuming unit
@@ -119,16 +122,59 @@ type CalculationResult struct {
 	CalculatedAt time.Time
 }
 
+// TenantStatus represents the status of a tenant for billing
+type TenantStatus string
+
+const (
+	TenantStatusTrial          TenantStatus = "TRIAL"
+	TenantStatusActive         TenantStatus = "ACTIVE"
+	TenantStatusSuspended      TenantStatus = "SUSPENDED"
+	TenantStatusPendingPayment TenantStatus = "PENDING_PAYMENT"
+	TenantStatusCancelled      TenantStatus = "CANCELLED"
+)
+
 // Tenant represents a company/cooperative client of the SaaS
 type Tenant struct {
-	ID         UUID       `json:"id"`
-	Name       string     `json:"name"`
-	Document   string     `json:"document"`
-	Plan       TenantPlan `json:"plan"`
-	TrialUntil time.Time  `json:"trial_until"`
-	Active     bool       `json:"active"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ID                   UUID       `json:"id"`
+	Name                 string     `json:"name"`
+	Document             string     `json:"document"`
+	Plan                 TenantPlan `json:"plan"`
+	Status               TenantStatus `json:"status"`
+	TrialUntil           time.Time  `json:"trial_until"`
+	TrialExpiresAt       *time.Time `json:"trial_expires_at"`
+	MaxUsers             int        `json:"max_users"`
+	SeatCount            int        `json:"seat_count"`
+	Features             map[string]any `json:"features"`
+	Active               bool       `json:"active"`
+	ActivatedAt          *time.Time `json:"activated_at"`
+	SuspendedAt          *time.Time `json:"suspended_at"`
+	CancelledAt          *time.Time `json:"cancelled_at"`
+	PaymentCustomerID    *string    `json:"payment_customer_id"`
+	PaymentSubscriptionID *string   `json:"payment_subscription_id"`
+	Address              string     `json:"address"`
+	AddressNumber        string     `json:"address_number"`
+	Province             string     `json:"province"`
+	PostalCode           string     `json:"postal_code"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+}
+
+// ListTenantsFilter holds filtering and pagination options for listing tenants
+type ListTenantsFilter struct {
+	Status string
+	Plan   string
+	Search string
+	Page   int
+	Limit  int
+}
+
+// TenantListResult holds the paginated result
+type TenantListResult struct {
+	Data       []*Tenant
+	Total      int
+	Page       int
+	Limit      int
+	TotalPages int
 }
 
 // User represents system users
@@ -189,6 +235,14 @@ func (t Transformer) NominalCurrent() float64 {
 	return (t.PowerKVA * 1000) / (math.Sqrt(3) * t.SecondaryVoltageV)
 }
 
+// LossLimitPctValue returns the loss limit percentage with default ANEEL value
+func (t Transformer) LossLimitPctValue() float64 {
+	if t.LossLimitPct != nil {
+		return *t.LossLimitPct
+	}
+	return 10.0 // Default ANEEL regulatory limit
+}
+
 // ConsumingUnit represents a consumer unit linked to a transformer
 type ConsumingUnit struct {
 	ID            UUID       `json:"id"`
@@ -244,6 +298,25 @@ type TransformerBalance struct {
 	Status              BalanceStatus `json:"status"`
 	UCCount             int           `json:"uc_count"`
 	CalculatedAt        time.Time     `json:"calculated_at"`
+	LossLimitPct        *float64      `json:"loss_limit_pct"`
+}
+
+// TransformerCurrentStatus represents the current status of a transformer for quick dashboard
+type TransformerCurrentStatus struct {
+	TransformerID       string        `json:"transformer_id"`
+	Code                string        `json:"code"`
+	Status              BalanceStatus `json:"status"`
+	LossPct             float64       `json:"loss_pct"`
+	LossLimitPct        float64       `json:"loss_limit_pct"`
+	EnergyInjectedKWh   float64       `json:"energy_injected_kwh"`
+	TotalConsumptionKWh float64       `json:"total_consumption_kwh"`
+	LossKWh             float64       `json:"loss_kwh"`
+	UCCount             int           `json:"uc_count"`
+	PeriodStart         time.Time     `json:"period_start"`
+	PeriodEnd           time.Time     `json:"period_end"`
+	CalculatedAt        time.Time     `json:"calculated_at"`
+	IsOverloaded        bool          `json:"is_overloaded"`
+	OverloadPct         float64       `json:"overload_pct"`
 }
 
 // Import represents a CSV import history

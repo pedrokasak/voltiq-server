@@ -114,43 +114,44 @@ func (m *XSSProtectionMiddleware) Handler(next http.Handler) http.Handler {
 
 // SanitizeInput sanitizes string input to prevent XSS
 func SanitizeInput(input string) string {
-	// Escape HTML entities
-	sanitized := html.EscapeString(input)
-	
-	// Remove javascript: protocol
+	// First, remove dangerous patterns BEFORE HTML escaping
+	sanitized := input
+
+	// Remove javascript: protocol (can execute in href/src)
 	sanitized = regexp.MustCompile(`(?i)javascript:`).ReplaceAllString(sanitized, "")
-	
-	// Remove data: URIs that could contain scripts
+
+	// Remove data: URIs (can execute scripts)
 	sanitized = regexp.MustCompile(`(?i)data\s*:`).ReplaceAllString(sanitized, "")
-	
-	// Remove event handlers
-	eventHandlers := []string{
-		`on\w+\s*=`,
-		`<script`,
-		`</script>`,
-		`<iframe`,
-		`</iframe>`,
-		`<object`,
-		`</object>`,
-		`<embed`,
-		`</embed>`,
-	}
-	
-	for _, pattern := range eventHandlers {
-		re := regexp.MustCompile(pattern)
-		sanitized = re.ReplaceAllString(sanitized, "")
-	}
-	
+
+	// Remove event handler attributes (onxxx="..." or onxxx='...' or onxxx=...)
+	// Match onxxx="..." or onxxx='...' or onxxx=... with leading whitespace
+	eventHandlerPattern := regexp.MustCompile(`(?i)(\s+)on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)`)
+	sanitized = eventHandlerPattern.ReplaceAllString(sanitized, "$1")
+
+	// Also handle event handlers without leading space (e.g., <img onerror=...>)
+	sanitized = regexp.MustCompile(`(?i)(>)on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)`).ReplaceAllString(sanitized, "$1")
+
+	// Remove javascript: protocol in remaining content (redundant but safe)
+	sanitized = regexp.MustCompile(`(?i)javascript:`).ReplaceAllString(sanitized, "")
+
+	// Remove data: URIs
+	sanitized = regexp.MustCompile(`(?i)data\s*:`).ReplaceAllString(sanitized, "")
+
+	// Now escape HTML entities for remaining content
+	// This converts < to <, > to >, etc.
+	// Script tags, iframe, object, embed become harmless text
+	sanitized = html.EscapeString(sanitized)
+
 	// Trim whitespace
 	sanitized = strings.TrimSpace(sanitized)
-	
+
 	return sanitized
 }
 
 // RequestIDMiddleware adds unique request ID for tracking
 func RequestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), r.Context().Value(&contextKey{}))
+		requestID := fmt.Sprintf("%d", time.Now().UnixNano())
 		w.Header().Set("X-Request-ID", requestID)
 		next.ServeHTTP(w, r)
 	})

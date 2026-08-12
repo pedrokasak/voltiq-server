@@ -9,6 +9,7 @@ import (
 
 	"github.com/voltiq/server/internal/delivery/handler"
 	deliverymiddleware "github.com/voltiq/server/internal/delivery/middleware"
+	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/pkg/metrics"
 )
 
@@ -20,11 +21,20 @@ type Config struct {
 	ConsumingUnitHandler *handler.ConsumingUnitHandler
 	BalanceHandler       *handler.BalanceHandler
 	ImportHandler        *handler.ImportHandler
+	AlertHandler         *handler.AlertHandler
+	RiskHandler          *handler.RiskHandler
+	DashboardHandler     *handler.DashboardHandler
+	ExportHandler        *handler.ExportHandler
+	SuperAdminHandler    *handler.SuperAdminHandler
+	FinancialHandler     *handler.FinancialHandler
+	BillingHandler       *handler.BillingHandler
+	WebhookHandler       *handler.WebhookHandler
 	HealthHandler        *handler.HealthHandler
 	MetricsCollector     *metrics.MetricsCollector
 	AuthMiddleware       *deliverymiddleware.AuthMiddleware
 	RateLimiter          *deliverymiddleware.RateLimiter
 	SecurityMiddleware   *deliverymiddleware.SecurityMiddleware
+	TenantStatusMiddleware *deliverymiddleware.TenantStatusMiddleware
 	CORSOrigins          []string
 }
 
@@ -76,18 +86,28 @@ func Setup(cfg Config) *chi.Mux {
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public routes (no auth required)
-		r.Post("/auth/login", cfg.AuthHandler.Login)
-		r.Post("/auth/signup", cfg.AuthHandler.Signup)
-		r.Post("/auth/refresh", cfg.AuthHandler.RefreshToken)
-		r.Post("/auth/logout", cfg.AuthHandler.Logout)
+		r.Group(func(r chi.Router) {
+			r.Post("/auth/login", cfg.AuthHandler.Login)
+			r.Post("/auth/signup", cfg.AuthHandler.Signup)
+			r.Post("/auth/refresh", cfg.AuthHandler.RefreshToken)
+			r.Post("/auth/logout", cfg.AuthHandler.Logout)
+			r.Get("/invites/{token}", cfg.InviteHandler.ValidateInvite)
+			r.Post("/invites/{token}/accept", cfg.InviteHandler.AcceptInvite)
 
-		// Invite routes (public for token validation and acceptance)
-		r.Get("/invites/{token}", cfg.InviteHandler.ValidateInvite)
-		r.Post("/invites/{token}/accept", cfg.InviteHandler.AcceptInvite)
+			// Webhook endpoints (public, verified by signature)
+			r.Route("/webhooks", func(r chi.Router) {
+				r.Post("/asaas", cfg.WebhookHandler.HandleAsaasWebhook)
+			})
+		})
 
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(cfg.AuthMiddleware.Chain())
+
+			// Apply TenantStatusMiddleware to all protected routes EXCEPT admin
+			if cfg.TenantStatusMiddleware != nil {
+				r.Use(cfg.TenantStatusMiddleware.Handler)
+			}
 
 			// Invite routes (auth required)
 			r.Post("/invites", cfg.InviteHandler.CreateInvite)
@@ -123,6 +143,30 @@ func Setup(cfg Config) *chi.Mux {
 				r.Get("/{id}/loss-analysis", cfg.TransformerHandler.LossAnalysis)
 				r.Get("/{id}/export", cfg.TransformerHandler.ExportCSV)
 				r.Post("/import", cfg.TransformerHandler.ImportCSV)
+				r.Post("/{id}/alert-config", cfg.AlertHandler.CreateForTransformer)
+			})
+
+			// Export routes (balance artifacts: PDF/Excel)
+			r.Route("/exports", func(r chi.Router) {
+				r.Get("/balance/{transformer_id}", cfg.ExportHandler.ExportBalance)
+			})
+
+			// Alert routes
+			r.Route("/alerts", func(r chi.Router) {
+				r.Post("/", cfg.AlertHandler.Create)
+				r.Get("/", cfg.AlertHandler.ListByTenant)
+				r.Get("/transformer/{transformer_id}", cfg.AlertHandler.GetByTransformer)
+				r.Get("/{id}", cfg.AlertHandler.GetByID)
+				r.Put("/{id}", cfg.AlertHandler.Update)
+				r.Delete("/{id}", cfg.AlertHandler.Delete)
+			})
+
+			// Risk routes
+			r.Route("/risk", func(r chi.Router) {
+				r.Get("/transformer/{transformer_id}/score", cfg.RiskHandler.GetRiskScore)
+				r.Get("/transformer/{transformer_id}/anomalies", cfg.RiskHandler.GetTransformerAnomalies)
+				r.Get("/all-scores", cfg.RiskHandler.GetAllRiskScores)
+				r.Get("/all-anomalies", cfg.RiskHandler.GetAllTransformersAnomalies)
 			})
 
 			// Consuming unit routes
@@ -160,6 +204,47 @@ func Setup(cfg Config) *chi.Mux {
 				r.Get("/template", cfg.ImportHandler.GetUploadTemplate)
 				r.Post("/validate", cfg.ImportHandler.ValidateCSV)
 			})
+
+			// Dashboard routes
+			r.Route("/dashboard", func(r chi.Router) {
+				r.Get("/kpis", cfg.DashboardHandler.GetKPIs)
+				r.Get("/monthly-loss", cfg.DashboardHandler.GetMonthlyLossHistory)
+				r.Get("/transformer-current-status", cfg.DashboardHandler.GetTransformerCurrentStatus)
+				// New advanced dashboard endpoints
+				r.Get("/kpi-sparklines", cfg.DashboardHandler.GetKPISparklines)
+				r.Get("/loss-evolution", cfg.DashboardHandler.GetLossEvolution)
+				r.Get("/loss-composition", cfg.DashboardHandler.GetLossComposition)
+				r.Get("/status-distribution", cfg.DashboardHandler.GetTransformerStatusDistribution)
+				r.Get("/quarterly-injected-billed", cfg.DashboardHandler.GetQuarterlyInjectedBilled)
+				r.Get("/accumulated-loss-cost", cfg.DashboardHandler.GetAccumulatedLossCost)
+				r.Get("/top-transformers", cfg.DashboardHandler.GetTopTransformersByLoss)
+				// Financial table - requires financial access
+				r.Group(func(r chi.Router) {
+					r.Use(deliverymiddleware.RequireFinancialAccess)
+					r.Get("/financial-table", cfg.DashboardHandler.GetFinancialTable)
+				})
+			})
+
+			// Billing routes
+			r.Route("/billing", func(r chi.Router) {
+				r.Get("/", cfg.BillingHandler.GetBillingInfo)
+				r.Post("/activate", cfg.BillingHandler.ActivatePlan)
+				r.Patch("/plan", cfg.BillingHandler.ChangePlan)
+				r.Post("/cancel", cfg.BillingHandler.CancelSubscription)
+				r.Get("/payments", cfg.BillingHandler.GetPaymentHistory)
+			})
+		})
+
+		// Admin routes (SUPER_ADMIN only) - OUTSIDE TenantStatusMiddleware
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(cfg.AuthMiddleware.Chain())
+			r.Use(cfg.AuthMiddleware.RoleMiddleware(domain.UserRoleSuperAdmin))
+			r.Get("/tenants", cfg.SuperAdminHandler.ListTenants)
+			r.Get("/tenants/{id}", cfg.SuperAdminHandler.GetTenantByID)
+			r.Get("/tenants/{id}/users", cfg.SuperAdminHandler.ListTenantUsers)
+			r.Post("/tenants/{id}/activate", cfg.SuperAdminHandler.ActivateTenant)
+			r.Patch("/tenants/{id}/plan", cfg.SuperAdminHandler.UpdateTenantPlan)
+			r.Patch("/tenants/{id}/status", cfg.SuperAdminHandler.UpdateTenantStatus)
 		})
 	})
 

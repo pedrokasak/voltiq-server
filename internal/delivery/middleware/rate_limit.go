@@ -158,10 +158,3 @@ func GetFingerprint(r *http.Request) string {
 	hash := sha256.Sum256([]byte(ip + userAgent + tenantID))
 	return hex.EncodeToString(hash[:])
 }
-
-// contextKey for tenant ID
-type contextKey string
-
-const (
-	TenantIDKey contextKey = "tenant_id"
-)

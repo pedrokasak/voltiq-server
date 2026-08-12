@@ -12,11 +12,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var (
-	ErrTenantExists = errors.New("tenant with this document already exists")
-	ErrInvalidPlan  = errors.New("invalid tenant plan")
-)
-
 // ParseTenantPlan parses a string to TenantPlan
 func ParseTenantPlan(s string) domain.TenantPlan {
 	switch domain.TenantPlan(s) {

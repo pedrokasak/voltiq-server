@@ -48,6 +48,7 @@ func NewFileUploadMiddleware(config FileUploadConfig) *FileUploadMiddleware {
 	if config.AllowedMimeTypes == nil {
 		config.AllowedMimeTypes = []string{
 			"text/csv",
+			"text/plain",
 			"application/vnd.ms-excel",
 		}
 	}
@@ -96,7 +97,7 @@ func (m *FileUploadMiddleware) ValidateFile(w http.ResponseWriter, r *http.Reque
 
 	// Validate MIME type
 	contentType := http.DetectContentType(buf)
-	if !m.isAllowedMime(contentType) {
+	if !isAllowedMime(m.config.AllowedMimeTypes, contentType) {
 		request.WriteJSON(w, http.StatusBadRequest, request.Fail(
 			"INVALID_FILE_TYPE",
 			"File type not allowed. Allowed types: CSV",
@@ -137,8 +138,8 @@ func (m *FileUploadMiddleware) ValidateFile(w http.ResponseWriter, r *http.Reque
 }
 
 // isAllowedMime checks if MIME type is allowed
-func (m *FileUploadConfig) isAllowedMime(mimeType string) bool {
-	for _, allowed := range m.AllowedMimeTypes {
+func isAllowedMime(allowedMimeTypes []string, mimeType string) bool {
+	for _, allowed := range allowedMimeTypes {
 		if strings.HasPrefix(mimeType, allowed) {
 			return true
 		}

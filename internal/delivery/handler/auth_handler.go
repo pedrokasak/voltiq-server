@@ -95,7 +95,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate refresh token
-	refreshToken, err := h.authUseCase.jwtService.GenerateRefreshToken(
+	refreshToken, err := h.authUseCase.GetJWTService().GenerateRefreshToken(
 		string(output.User.ID),
 		string(output.User.TenantID),
 	)

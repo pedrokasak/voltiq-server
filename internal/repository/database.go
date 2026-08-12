@@ -18,7 +18,7 @@ type Database struct {
 func NewDatabase(ctx context.Context) (*Database, error) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/energybalance?sslmode=disable"
+		dsn = "postgres://postgres:postgres@localhost:5432/voltiq-sw?sslmode=disable"
 	}
 
 	config, err := pgxpool.ParseConfig(dsn)

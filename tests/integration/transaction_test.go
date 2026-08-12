@@ -2,11 +2,12 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/repository"
@@ -16,9 +17,6 @@ import (
 // Note: In production, use a separate test database
 func setupTestDB(t *testing.T) (*repository.Database, func()) {
 	ctx := context.Background()
-	
-	// Use test database URL from environment or default
-	dbURL := "postgres://postgres:postgres@localhost:5432/voltiq-sw_test?sslmode=disable"
 	
 	db, err := repository.NewDatabase(ctx)
 	if err != nil {
@@ -47,7 +45,7 @@ func TestAtomicTransaction_Success(t *testing.T) {
 	ctx := context.Background()
 	var executed bool
 
-	err := txManager.WithTransaction(ctx, func(tx repository.pgx.Tx) error {
+	err := txManager.WithTransaction(ctx, func(tx pgx.Tx) error {
 		executed = true
 		// Simulate database operations
 		_, err := tx.Exec(ctx, "SELECT 1")
@@ -73,7 +71,7 @@ func TestAtomicTransaction_Rollback(t *testing.T) {
 	ctx := context.Background()
 	expectedError := "intentional error"
 
-	err := txManager.WithTransaction(ctx, func(tx repository.pgx.Tx) error {
+	err := txManager.WithTransaction(ctx, func(tx pgx.Tx) error {
 		// Simulate some operation
 		_, err := tx.Exec(ctx, "SELECT 1")
 		if err != nil {
@@ -81,7 +79,7 @@ func TestAtomicTransaction_Rollback(t *testing.T) {
 		}
 
 		// Intentionally return error to trigger rollback
-		return repository.NewError(expectedError)
+		return newTestError(expectedError)
 	})
 
 	if err == nil {
@@ -129,7 +127,7 @@ func TestConcurrentTransactions(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < updatesPerGoroutine; j++ {
-				err := txManager.WithTransactionAndRetry(ctx, 3, func(tx repository.pgx.Tx) error {
+				err := txManager.WithTransactionAndRetry(ctx, 3, func(tx pgx.Tx) error {
 					// Lock the row
 					_, err := tx.Exec(ctx, 
 						"UPDATE test_counter SET value = value + 1, version = version + 1 WHERE id = $1",
@@ -200,7 +198,7 @@ func TestOptimisticLock(t *testing.T) {
 	optLock := repository.NewOptimisticLock("test_optimistic", "id", "version")
 
 	// First update should succeed
-	err = txManager.WithTransaction(ctx, func(tx repository.pgx.Tx) error {
+	err = txManager.WithTransaction(ctx, func(tx pgx.Tx) error {
 		return optLock.UpdateWithVersion(ctx, tx, string(testID), func() (map[string]any, error) {
 			return map[string]any{
 				"data": "updated_by_tx1",
@@ -262,7 +260,7 @@ func TestPessimisticLock(t *testing.T) {
 	pessLock := &repository.PessimisticLock{}
 
 	// Test row locking
-	err = txManager.WithTransaction(ctx, func(tx repository.pgx.Tx) error {
+	err = txManager.WithTransaction(ctx, func(tx pgx.Tx) error {
 		return pessLock.LockRowForUpdate(ctx, tx, "test_pessimistic", "id", string(testID))
 	})
 
@@ -295,21 +293,21 @@ func TestBatchOperation(t *testing.T) {
 	txManager := repository.NewAtomicTransactionManager(db.Pool)
 
 	// Test batch operations
-	err = txManager.WithTransaction(ctx, func(tx repository.pgx.Tx) error {
+	err = txManager.WithTransaction(ctx, func(tx pgx.Tx) error {
 		batch := repository.NewBatchOperation(tx)
 		
-		operations := []func(repository.pgx.Tx) error{
-			func(tx repository.pgx.Tx) error {
+		operations := []func(pgx.Tx) error{
+			func(tx pgx.Tx) error {
 				_, err := tx.Exec(ctx, "INSERT INTO test_batch (id, value) VALUES ($1, $2)",
 					domain.UUID("33333333-3333-3333-3333-333333333331"), 1)
 				return err
 			},
-			func(tx repository.pgx.Tx) error {
+			func(tx pgx.Tx) error {
 				_, err := tx.Exec(ctx, "INSERT INTO test_batch (id, value) VALUES ($1, $2)",
 					domain.UUID("33333333-3333-3333-3333-333333333332"), 2)
 				return err
 			},
-			func(tx repository.pgx.Tx) error {
+			func(tx pgx.Tx) error {
 				_, err := tx.Exec(ctx, "INSERT INTO test_batch (id, value) VALUES ($1, $2)",
 					domain.UUID("33333333-3333-3333-3333-333333333333"), 3)
 				return err
@@ -351,7 +349,7 @@ func TestTransactionTimeout(t *testing.T) {
 
 	// Simulate long-running transaction
 	startTime := time.Now()
-	err := txManager.WithTransaction(ctx, func(tx repository.pgx.Tx) error {
+	err := txManager.WithTransaction(ctx, func(tx pgx.Tx) error {
 		// Simulate slow operation
 		time.Sleep(200 * time.Millisecond)
 		return nil
@@ -380,12 +378,12 @@ func TestRetryLogic(t *testing.T) {
 	attemptCount := 0
 	maxAttempts := 3
 
-	err := txManager.WithTransactionAndRetry(ctx, maxAttempts, func(tx repository.pgx.Tx) error {
+	err := txManager.WithTransactionAndRetry(ctx, maxAttempts, func(tx pgx.Tx) error {
 		attemptCount++
 		
 		// Simulate deadlock on first attempt
 		if attemptCount < 2 {
-			return repository.NewError("deadlock detected")
+			return newTestError("deadlock detected")
 		}
 		
 		return nil
@@ -405,6 +403,6 @@ func TestRetryLogic(t *testing.T) {
 }
 
 // Helper to create error
-func repository.NewError(msg string) error {
+func newTestError(msg string) error {
 	return errors.New(msg)
 }
