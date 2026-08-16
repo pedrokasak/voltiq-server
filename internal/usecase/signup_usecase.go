@@ -78,12 +78,20 @@ func (uc *SignupUseCase) Signup(ctx context.Context, input SignupInput) (*Signup
 		trialUntil = time.Time{}
 	}
 
+	status := domain.TenantStatusTrial
+	if input.Plan != domain.TenantPlanTrial {
+		status = domain.TenantStatusActive
+	}
+
 	tenant := &domain.Tenant{
 		ID:         domain.UUID(uuid.New().String()),
 		Name:       input.TenantName,
 		Document:   input.TenantDocument,
 		Plan:       input.Plan,
+		Status:     status,
 		TrialUntil: trialUntil,
+		MaxUsers:   getMaxUsersForPlan(input.Plan),
+		SeatCount:  1,
 		Active:     true,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
