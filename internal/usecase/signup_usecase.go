@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -98,6 +99,7 @@ func (uc *SignupUseCase) Signup(ctx context.Context, input SignupInput) (*Signup
 	}
 
 	if err := uc.tenantRepo.Create(ctx, tenant); err != nil {
+		slog.Error("signup: failed to create tenant", "error", err, "document", input.TenantDocument)
 		return nil, errors.New("failed to create tenant")
 	}
 
@@ -119,6 +121,7 @@ func (uc *SignupUseCase) Signup(ctx context.Context, input SignupInput) (*Signup
 	}
 
 	if err := uc.userRepo.Create(ctx, user); err != nil {
+		slog.Error("signup: failed to create admin user", "error", err, "tenant_id", tenant.ID)
 		return nil, errors.New("failed to create admin user")
 	}
 
