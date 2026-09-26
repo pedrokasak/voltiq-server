@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -47,7 +48,7 @@ func Setup(cfg Config) *chi.Mux {
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
-	r.Use(chimiddleware.Timeout(60000)) // 60 seconds
+	r.Use(chimiddleware.Timeout(60 * time.Second))
 
 	// Security middleware (must be early)
 	if cfg.SecurityMiddleware != nil {
