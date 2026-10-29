@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/voltiq/server/internal/aneel"
 	"github.com/voltiq/server/internal/config"
 	"github.com/voltiq/server/internal/delivery/handler"
 	"github.com/voltiq/server/internal/delivery/middleware"
@@ -157,15 +158,17 @@ func Build(ctx context.Context, opt Options) (*App, error) {
 		limits = middleware.NewRateLimits()
 	}
 	r := router.Setup(router.Config{
-		AuthHandler:            handler.NewAuthHandler(authUC, signupUC),
-		AccountHandler:         handler.NewAccountHandler(accountUC),
-		InviteHandler:          handler.NewInviteHandler(inviteUC, authUC),
-		TransformerHandler:     handler.NewTransformerHandler(transformerUC, registryUC),
-		ConsumingUnitHandler:   handler.NewConsumingUnitHandler(ucUC, registryUC),
-		NetworkHandler:         handler.NewNetworkHandler(networkUC),
-		BalanceHandler:         handler.NewBalanceHandler(balanceUC, reportUC),
-		ImportHandler:          handler.NewImportHandler(importUC),
-		AlertHandler:           handler.NewAlertHandler(alertUC),
+		AuthHandler:          handler.NewAuthHandler(authUC, signupUC),
+		AccountHandler:       handler.NewAccountHandler(accountUC),
+		InviteHandler:        handler.NewInviteHandler(inviteUC, authUC),
+		TransformerHandler:   handler.NewTransformerHandler(transformerUC, registryUC),
+		ConsumingUnitHandler: handler.NewConsumingUnitHandler(ucUC, registryUC),
+		NetworkHandler:       handler.NewNetworkHandler(networkUC),
+		BalanceHandler:       handler.NewBalanceHandler(balanceUC, reportUC),
+		ImportHandler:        handler.NewImportHandler(importUC),
+		AlertHandler:         handler.NewAlertHandler(alertUC),
+		AneelHandler: handler.NewAneelHandler(aneel.NewClient(getEnv("ANEEL_OPEN_DATA_URL", ""),
+			getEnv("ANEEL_TARIFF_RESOURCE_ID", ""), nil)),
 		RiskHandler:            handler.NewRiskHandler(riskUC),
 		DashboardHandler:       handler.NewDashboardHandler(dashboardUC, balanceRepo),
 		ExportHandler:          handler.NewExportHandler(exportUC, reportUC),

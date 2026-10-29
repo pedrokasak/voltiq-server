@@ -67,6 +67,16 @@ as permissões do usuário, limites do plano, uso e progresso do onboarding.
 | DELETE | /invites/{id} | users:manage |
 | POST | /invites/{id}/resend | users:manage |
 
+### Dados abertos da ANEEL
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | /aneel/distributors?search= | distribuidoras e permissionárias do conjunto de tarifas (sigla ou CNPJ; até 50) |
+| GET | /aneel/tariffs?agent=SIGLA | tarifa B1 convencional vigente (TUSD + TE em R$/MWh por classe, resolução, vigência) e `suggested_brl_mwh` (residencial) |
+
+Fonte: portal dadosabertos.aneel.gov.br (CKAN `datastore_search`), cache de 24 h.
+A tarifa escolhida é aplicada com `PUT /tenant/settings {tariff_brl_mwh}`.
+Portal fora do ar responde 502 `ANEEL_UNAVAILABLE`.
+
 ### Rede elétrica
 | Método | Rota | Permissão |
 |---|---|---|

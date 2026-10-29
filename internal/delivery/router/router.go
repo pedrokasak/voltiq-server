@@ -25,6 +25,7 @@ type Config struct {
 	BalanceHandler         *handler.BalanceHandler
 	ImportHandler          *handler.ImportHandler
 	AlertHandler           *handler.AlertHandler
+	AneelHandler           *handler.AneelHandler
 	RiskHandler            *handler.RiskHandler
 	DashboardHandler       *handler.DashboardHandler
 	ExportHandler          *handler.ExportHandler
@@ -114,6 +115,11 @@ func Setup(cfg Config) *chi.Mux {
 			r.With(perm(domain.PermissionTenantManage)).Post("/onboarding/complete", cfg.AccountHandler.CompleteOnboarding)
 			r.Get("/tenant/settings", cfg.AccountHandler.GetSettings)
 			r.With(perm(domain.PermissionTenantManage)).Put("/tenant/settings", cfg.AccountHandler.UpdateSettings)
+			if cfg.AneelHandler != nil {
+				// dados abertos da ANEEL (tarifa de referencia do tenant)
+				r.Get("/aneel/distributors", cfg.AneelHandler.Distributors)
+				r.Get("/aneel/tariffs", cfg.AneelHandler.Tariff)
+			}
 			r.With(perm(domain.PermissionAuditView)).Get("/audit-logs", cfg.AccountHandler.AuditLog)
 
 			// Usuarios e convites (RBAC)
