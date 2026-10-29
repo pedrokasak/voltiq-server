@@ -249,6 +249,7 @@ func scanDelivery(row pgx.Row) (*domain.AlertDelivery, error) {
 // CreateDelivery records an alert to be sent. Returns false when the same
 // balance was already alerted to the same recipient with the same type.
 func (r *AlertRepository) CreateDelivery(ctx context.Context, d *domain.AlertDelivery) (bool, error) {
+	defer invalidateFromContext(ctx)
 	var exists bool
 	if err := r.db.Pool.QueryRow(ctx, `
 		SELECT EXISTS (SELECT 1 FROM alerts WHERE balance_id = $1 AND recipient = $2 AND channel = $3

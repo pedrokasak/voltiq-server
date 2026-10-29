@@ -359,6 +359,8 @@ func (uc *AccountUseCase) UpdateSettings(ctx context.Context, tenantID domain.UU
 	if err := uc.accountRepo.UpdateSettings(ctx, s); err != nil {
 		return nil, err
 	}
+	// a tarifa entra nos dashboards em cache
+	repository.InvalidateSummaries(tenantID)
 	return s, nil
 }
 

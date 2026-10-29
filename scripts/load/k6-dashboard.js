@@ -1,6 +1,7 @@
 // Carga de leitura dos dashboards (RNF01: p95 < 2 s com 50 usuarios).
-// O rate limit (60/min por IP+UA+tenant) vale tambem aqui: rode contra
-// staging ou com usuarios/origens distintas.
+// O rate limit (300/min por IP+UA+tenant) vale tambem aqui: rode contra
+// staging ou com usuarios/origens distintas. Alternativa sem k6:
+// go run ./scripts/load/loadtest (massa de dados em scripts/load/seed_50k.sql).
 // Uso: k6 run -e BASE=https://voltiq-sw-server.fly.dev/api/v1 -e EMAIL=... -e PASSWORD=... scripts/load/k6-dashboard.js
 import http from "k6/http";
 import { check, sleep } from "k6";

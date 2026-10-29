@@ -116,6 +116,15 @@ func (uc *ConsumingUnitUseCase) GetConsumingUnitByID(ctx context.Context, id dom
 }
 
 // ListConsumingUnits returns all consuming units for a tenant
+// ListConsumingUnitsPage returns one page of the tenant's consuming units and the total.
+func (uc *ConsumingUnitUseCase) ListConsumingUnitsPage(ctx context.Context, tenantID domain.UUID, search string, limit, offset int) ([]*domain.ConsumingUnit, int, error) {
+	units, total, err := uc.ucRepo.ListPage(ctx, tenantID, search, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list consuming units: %w", err)
+	}
+	return units, total, nil
+}
+
 func (uc *ConsumingUnitUseCase) ListConsumingUnits(ctx context.Context, tenantID domain.UUID) ([]*domain.ConsumingUnit, error) {
 	units, err := uc.ucRepo.GetByTenant(ctx, tenantID)
 	if err != nil {

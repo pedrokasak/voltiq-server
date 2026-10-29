@@ -21,6 +21,7 @@ func NewTransformerReadingRepository(db *Database) *TransformerReadingRepository
 
 // Create inserts a new transformer reading into the database
 func (r *TransformerReadingRepository) Create(ctx context.Context, reading *domain.TransformerReading) error {
+	defer invalidateFromContext(ctx)
 	query := `
 		INSERT INTO transformer_readings (id, tenant_id, transformer_id, reading_at, energy_kwh, demand_kw, power_factor, import_id, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -43,6 +44,7 @@ func (r *TransformerReadingRepository) Create(ctx context.Context, reading *doma
 
 // CreateBatch inserts multiple transformer readings
 func (r *TransformerReadingRepository) CreateBatch(ctx context.Context, readings []*domain.TransformerReading) error {
+	defer invalidateFromContext(ctx)
 	batch := &pgx.Batch{}
 
 	for _, reading := range readings {
@@ -216,6 +218,7 @@ func (r *TransformerReadingRepository) ExistingKeys(ctx context.Context, tenantI
 
 // CopyInsert bulk-inserts readings inside tx using COPY (RNF01.1).
 func (r *TransformerReadingRepository) CopyInsert(ctx context.Context, tx pgx.Tx, readings []*domain.TransformerReading) (int64, error) {
+	defer invalidateFromContext(ctx)
 	if len(readings) == 0 {
 		return 0, nil
 	}
@@ -237,6 +240,7 @@ func (r *TransformerReadingRepository) CopyInsert(ctx context.Context, tx pgx.Tx
 // DeleteByImport removes the readings created by an import (desfazer
 // importacao, solicitado pelo usuario).
 func (r *TransformerReadingRepository) DeleteByImport(ctx context.Context, tx pgx.Tx, tenantID, importID domain.UUID) (int64, error) {
+	defer invalidateFromContext(ctx)
 	tag, err := tx.Exec(ctx, `DELETE FROM transformer_readings WHERE tenant_id = $1 AND import_id = $2`, tenantID, importID)
 	return tag.RowsAffected(), err
 }

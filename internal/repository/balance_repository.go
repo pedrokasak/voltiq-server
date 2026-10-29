@@ -21,6 +21,7 @@ func NewBalanceRepository(db *Database) *BalanceRepository {
 
 // Create inserts a new transformer balance into the database
 func (r *BalanceRepository) Create(ctx context.Context, balance *domain.TransformerBalance) error {
+	defer invalidateFromContext(ctx)
 	query := `
 		INSERT INTO transformer_balance (
 			id, tenant_id, transformer_id, period_start, period_end,
@@ -556,6 +557,7 @@ func (r *BalanceRepository) GetTopTransformersByLoss(
 // calculated for the same transformer and period so recalculations do not
 // duplicate history.
 func (r *BalanceRepository) UpsertForPeriod(ctx context.Context, balance *domain.TransformerBalance) error {
+	defer invalidateFromContext(ctx)
 	update := `
 		UPDATE transformer_balance
 		SET energy_injected_kwh = $4, total_consumption_kwh = $5, loss_kwh = $6, loss_pct = $7,

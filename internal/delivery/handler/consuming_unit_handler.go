@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/voltiq/server/internal/delivery/middleware"
@@ -105,11 +106,17 @@ func (h *ConsumingUnitHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 
 // List handles listing all consuming units for a tenant
 func (h *ConsumingUnitHandler) List(w http.ResponseWriter, r *http.Request) {
-	units, err := h.ucUseCase.ListConsumingUnits(r.Context(), middleware.GetTenantID(r.Context()))
+	// Paginado (?search=&limit=&offset=, padrao 100, maximo 1000; total em
+	// X-Total-Count): com 100 mil UCs a lista completa passava de 30 MB.
+	limit := min(max(queryInt(r, "limit", 100), 1), 1000)
+	offset := max(queryInt(r, "offset", 0), 0)
+	units, total, err := h.ucUseCase.ListConsumingUnitsPage(r.Context(), middleware.GetTenantID(r.Context()),
+		strings.TrimSpace(r.URL.Query().Get("search")), limit, offset)
 	if err != nil {
 		writeUseCaseError(w, err, "LIST_ERROR")
 		return
 	}
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
 	request.WriteJSON(w, http.StatusOK, request.Success(units, ""))
 }
 

@@ -78,6 +78,7 @@ func (r *SubstationRepository) GetByID(ctx context.Context, id domain.UUID) (*do
 
 // Create inserts a substation.
 func (r *SubstationRepository) Create(ctx context.Context, s *domain.Substation) error {
+	defer invalidateFromContext(ctx)
 	_, err := r.db.Pool.Exec(ctx, `
 		INSERT INTO substations (id, tenant_id, code, name, lat, lng, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`,
@@ -87,6 +88,7 @@ func (r *SubstationRepository) Create(ctx context.Context, s *domain.Substation)
 
 // Update changes name, code and location of a substation.
 func (r *SubstationRepository) Update(ctx context.Context, s *domain.Substation) error {
+	defer invalidateFromContext(ctx)
 	q, args := scoped(ctx, `UPDATE substations SET code = $1, name = $2, lat = $3, lng = $4, updated_at = NOW()
 		WHERE id = $5 AND deleted_at IS NULL /*tenant*/`, s.Code, s.Name, s.Lat, s.Lng, s.ID)
 	tag, err := r.db.Pool.Exec(ctx, q, args...)
@@ -101,6 +103,7 @@ func (r *SubstationRepository) Update(ctx context.Context, s *domain.Substation)
 
 // Delete soft-deletes a substation and unlinks its transformers.
 func (r *SubstationRepository) Delete(ctx context.Context, id domain.UUID) error {
+	defer invalidateFromContext(ctx)
 	return r.db.InTx(ctx, func(tx pgx.Tx) error {
 		q, args := scoped(ctx, `UPDATE substations SET deleted_at = NOW(), updated_at = NOW()
 			WHERE id = $1 AND deleted_at IS NULL /*tenant*/`, id)

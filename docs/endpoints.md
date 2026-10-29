@@ -77,7 +77,7 @@ as permissões do usuário, limites do plano, uso e progresso do onboarding.
 | POST/PUT/PATCH/DELETE | /transformers, /transformers/{id} (+ /batch) | transformer:manage (respeita limite do plano) |
 | POST | /transformers/import | transformer:manage (cadastro em massa CSV/XLSX, `dry_run`) |
 | POST | /transformers/{id}/readings | reading:manage (leitura manual, recalcula o mês) |
-| GET | /consuming-units, /consuming-units/{id}, /{id}/consumption | uc:view |
+| GET | /consuming-units?search=&limit=&offset= (padrão 100, máx. 1000; total em X-Total-Count), /consuming-units/{id}, /{id}/consumption | uc:view |
 | POST/PUT/PATCH/DELETE | /consuming-units, /consuming-units/{id} | uc:manage |
 | POST | /consuming-units/import | uc:manage |
 | POST | /consuming-units/{id}/readings | reading:manage |
@@ -103,16 +103,16 @@ as permissões do usuário, limites do plano, uso e progresso do onboarding.
 | GET/POST/PUT/DELETE | /alert-recipients (+ /{id}/test) | alert:manage para escrita |
 | GET/POST/PUT/DELETE | /transformer-groups | alert:manage para escrita |
 | GET | /alerts?status=&channel=&type=&days=, /alerts/stats, /alerts/{id} | dashboard:view |
-| GET | /risk/all-scores, /risk/all-anomalies, /risk/transformer/{id}/score | dashboard:view |
+| GET | /risk/all-scores?limit= (maiores riscos primeiro, padrão 100), /risk/all-anomalies, /risk/transformer/{id}/score | dashboard:view |
 
 ### Dashboards e mapa
 | Método | Rota | Descrição |
 |---|---|---|
-| GET | /dashboard/map?status=&substation_id=&group_id=&search= | trafos georreferenciados com último balanço, fator de carga, leituras atrasadas, alertas, subestações, bounds e centro; R$ só para quem tem financial:view |
+| GET | /dashboard/map?status=&substation_id=&group_id=&search=&bbox=min_lat,min_lng,max_lat,max_lng&limit= | trafos georreferenciados com último balanço, fator de carga, leituras atrasadas, alertas, subestações, bounds e centro; R$ só para quem tem financial:view. Até `limit` pontos (padrão 3000, máx. 10000) da área `bbox`, priorizando críticos; `located`, `in_view` e `truncated` informam o recorte |
 | GET | /dashboard/operational | rede, status, último mês x anterior, qualidade de dados, importações, alertas, trafos que pedem atenção, evolução 12 meses, subestações |
 | GET | /dashboard/managerial | **financial:view** - tarifa do tenant, mês atual x anterior, acumulado do ano, 12 meses, projeção anual, por subestação, top valor recuperável |
 | GET | /dashboard/kpis, /kpi-sparklines, /loss-evolution, /loss-composition, /status-distribution, /quarterly-injected-billed, /top-transformers, /transformer-current-status, /monthly-loss | gráficos |
-| GET | /dashboard/financial-table, /dashboard/accumulated-loss-cost | **financial:view** |
+| GET | /dashboard/financial-table?limit= (maior valor recuperável primeiro, padrão 1000), /dashboard/accumulated-loss-cost | **financial:view** |
 
 ### Relatórios
 | Método | Rota | Permissão |
@@ -147,6 +147,17 @@ Acessível mesmo com trial expirado ou conta suspensa, para regularização.
 | POST | /admin/tenants/{id}/extend-trial `{days, reason}` |
 | GET | /admin/billing/metrics?period=30d\|90d\|12m (MRR, ARR, churn, LTV, conversão de trial, NRR, por plano, série) |
 | GET | /admin/audit |
+
+## Desempenho
+
+A lista de trafos com último balanço e os dashboards operacional, gerencial e
+mapa ficam em cache por tenant por até 15 s; escritas em trafos, UCs,
+subestações, leituras, balanços, alertas e na tarifa invalidam o cache do
+tenant. Requisições simultâneas do mesmo tenant compartilham um único cálculo.
+
+Teste de carga local (`scripts/load/seed_50k.sql` + `scripts/load/loadtest`,
+50 mil trafos, 100 mil UCs, 6 meses de dados, 50 usuários por 60 s): 15.155
+requisições, 0 erros, p95 geral 154 ms, pior p95 1,0 s (gerencial).
 
 ## Jobs agendados
 

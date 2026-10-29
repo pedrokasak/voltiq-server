@@ -23,6 +23,7 @@ func NewTransformerRepository(db *Database) *TransformerRepository {
 
 // Create inserts a new transformer into the database
 func (r *TransformerRepository) Create(ctx context.Context, transformer *domain.Transformer) error {
+	defer invalidateFromContext(ctx)
 	query := `
 		INSERT INTO transformers (
 			id, tenant_id, substation_id, code, power_kva, primary_voltage_kv, 
@@ -145,6 +146,7 @@ func (r *TransformerRepository) GetByTenant(ctx context.Context, tenantID domain
 
 // Update updates an existing transformer
 func (r *TransformerRepository) Update(ctx context.Context, transformer *domain.Transformer) error {
+	defer invalidateFromContext(ctx)
 	query := `
 		UPDATE transformers
 		SET substation_id = $1, code = $2, power_kva = $3, primary_voltage_kv = $4,
@@ -175,6 +177,7 @@ func (r *TransformerRepository) Update(ctx context.Context, transformer *domain.
 
 // Delete soft deletes a transformer
 func (r *TransformerRepository) Delete(ctx context.Context, id domain.UUID) error {
+	defer invalidateFromContext(ctx)
 	query := `
 		UPDATE transformers
 		SET deleted_at = $1, updated_at = $2
@@ -294,8 +297,25 @@ func (r *TransformerRepository) AvgLossLimit(ctx context.Context, tenantID domai
 }
 
 // ListSummaries lists transformers of a tenant with their latest balance.
-// Returns the page and the total matching the filter.
+// Returns the page and the total matching the filter. A rede inteira do
+// tenant vem do cache (summaryCache) e o filtro e aplicado em memoria; o
+// filtro por grupo continua no SQL.
 func (r *TransformerRepository) ListSummaries(ctx context.Context, tenantID domain.UUID, f TransformerFilter) ([]*TransformerSummary, int, error) {
+	if f.GroupID != "" {
+		return r.listSummariesSQL(ctx, tenantID, f)
+	}
+	all, err := summaries.get(ctx, tenantID, func(ctx context.Context) ([]*TransformerSummary, error) {
+		items, _, err := r.listSummariesSQL(ctx, tenantID, TransformerFilter{})
+		return items, err
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	items, total := filterSummaries(all, f)
+	return items, total, nil
+}
+
+func (r *TransformerRepository) listSummariesSQL(ctx context.Context, tenantID domain.UUID, f TransformerFilter) ([]*TransformerSummary, int, error) {
 	args := []any{tenantID}
 	where := []string{"t.tenant_id = $1", "t.deleted_at IS NULL"}
 
@@ -417,6 +437,7 @@ func (r *TransformerRepository) ListSummaries(ctx context.Context, tenantID doma
 // with the same code (including a soft-deleted one), updates and restores it.
 // Returns true when a new row was inserted.
 func (r *TransformerRepository) UpsertByCode(ctx context.Context, tx pgx.Tx, t *domain.Transformer) (bool, error) {
+	defer invalidateFromContext(ctx)
 	query := `
 		INSERT INTO transformers (
 			id, tenant_id, substation_id, code, power_kva, primary_voltage_kv,

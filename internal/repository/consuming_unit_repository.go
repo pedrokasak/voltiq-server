@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ func NewConsumingUnitRepository(db *Database) *ConsumingUnitRepository {
 
 // Create inserts a new consuming unit into the database
 func (r *ConsumingUnitRepository) Create(ctx context.Context, uc *domain.ConsumingUnit) error {
+	defer invalidateFromContext(ctx)
 	query := `
 		INSERT INTO consuming_units (id, tenant_id, transformer_id, uc_code, name, class, active, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -159,8 +161,42 @@ func (r *ConsumingUnitRepository) GetByTenant(ctx context.Context, tenantID doma
 	return ucs, nil
 }
 
+// ListPage returns one page of the tenant's consuming units ordered by code,
+// optionally filtered by code/name (search), and the total matching.
+func (r *ConsumingUnitRepository) ListPage(ctx context.Context, tenantID domain.UUID, search string, limit, offset int) ([]*domain.ConsumingUnit, int, error) {
+	where := "tenant_id = $1 AND deleted_at IS NULL"
+	args := []any{tenantID}
+	if search != "" {
+		args = append(args, "%"+search+"%")
+		where += " AND (uc_code ILIKE $2 OR name ILIKE $2)"
+	}
+	var total int
+	if err := r.db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM consuming_units WHERE "+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args = append(args, limit, offset)
+	rows, err := r.db.Pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, tenant_id, transformer_id, uc_code, name, class, active, created_at, COALESCE(updated_at, created_at), deleted_at
+		FROM consuming_units WHERE %s ORDER BY uc_code LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	ucs := []*domain.ConsumingUnit{}
+	for rows.Next() {
+		uc := &domain.ConsumingUnit{}
+		if err := rows.Scan(&uc.ID, &uc.TenantID, &uc.TransformerID, &uc.UCCode, &uc.Name, &uc.Class,
+			&uc.Active, &uc.CreatedAt, &uc.UpdatedAt, &uc.DeletedAt); err != nil {
+			return nil, 0, err
+		}
+		ucs = append(ucs, uc)
+	}
+	return ucs, total, rows.Err()
+}
+
 // Update updates an existing consuming unit
 func (r *ConsumingUnitRepository) Update(ctx context.Context, uc *domain.ConsumingUnit) error {
+	defer invalidateFromContext(ctx)
 	query := `
 		UPDATE consuming_units
 		SET transformer_id = $1, uc_code = $2, name = $3, class = $4, active = $5, updated_at = $6
@@ -183,6 +219,7 @@ func (r *ConsumingUnitRepository) Update(ctx context.Context, uc *domain.Consumi
 
 // Delete soft deletes a consuming unit
 func (r *ConsumingUnitRepository) Delete(ctx context.Context, id domain.UUID) error {
+	defer invalidateFromContext(ctx)
 	query := `
 		UPDATE consuming_units
 		SET deleted_at = $1, updated_at = $2
@@ -260,6 +297,7 @@ func (r *ConsumingUnitRepository) CountByTenant(ctx context.Context, tenantID do
 // UpsertByCode creates the UC or updates the existing one with the same
 // code (restoring it if soft-deleted). Returns true when inserted.
 func (r *ConsumingUnitRepository) UpsertByCode(ctx context.Context, tx pgx.Tx, u *domain.ConsumingUnit) (bool, error) {
+	defer invalidateFromContext(ctx)
 	var inserted bool
 	err := tx.QueryRow(ctx, `
 		INSERT INTO consuming_units (id, tenant_id, transformer_id, uc_code, name, class, active, created_at, updated_at)

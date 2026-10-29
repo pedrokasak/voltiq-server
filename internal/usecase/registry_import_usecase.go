@@ -324,5 +324,6 @@ func (uc *RegistryImportUseCase) CreateTransformers(ctx context.Context, tenantI
 	if err != nil {
 		return nil, err
 	}
+	repository.InvalidateSummaries(tenantID)
 	return items, nil
 }

@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -193,6 +194,16 @@ const (
 // Map returns the georeferenced transformers with their latest balance.
 // Valores em R$ so sao preenchidos quando financial for true.
 func (uc *DashboardUseCase) Map(ctx context.Context, tenantID domain.UUID, f MapFilter, financial bool) (*MapData, error) {
+	key := fmt.Sprintf("map|%s|%s|%s|%s|%d|%t", f.Status, f.SubstationID, f.GroupID, f.Search, f.Limit, financial)
+	if f.BBox != nil {
+		key += fmt.Sprintf("|%.3f,%.3f,%.3f,%.3f", f.BBox.MinLat, f.BBox.MinLng, f.BBox.MaxLat, f.BBox.MaxLng)
+	}
+	return repository.Memo(ctx, tenantID, key, func(ctx context.Context) (*MapData, error) {
+		return uc.buildMap(ctx, tenantID, f, financial)
+	})
+}
+
+func (uc *DashboardUseCase) buildMap(ctx context.Context, tenantID domain.UUID, f MapFilter, financial bool) (*MapData, error) {
 	items, err := uc.allSummaries(ctx, tenantID, repository.TransformerFilter{
 		Status: f.Status, SubstationID: f.SubstationID, GroupID: f.GroupID, Search: f.Search,
 	})
@@ -392,7 +403,15 @@ func (uc *DashboardUseCase) evolution(ctx context.Context, tenantID domain.UUID,
 }
 
 // Operational builds the operational dashboard.
+// O resultado fica em cache por tenant (repository.Memo) e e invalidado pelas
+// escritas que mudam a rede ou os balancos.
 func (uc *DashboardUseCase) Operational(ctx context.Context, tenantID domain.UUID) (*OperationalDashboard, error) {
+	return repository.Memo(ctx, tenantID, "operational", func(ctx context.Context) (*OperationalDashboard, error) {
+		return uc.buildOperational(ctx, tenantID)
+	})
+}
+
+func (uc *DashboardUseCase) buildOperational(ctx context.Context, tenantID domain.UUID) (*OperationalDashboard, error) {
 	items, err := uc.allSummaries(ctx, tenantID, repository.TransformerFilter{})
 	if err != nil {
 		return nil, err
@@ -581,7 +600,17 @@ type ManagerialDashboard struct {
 }
 
 // Managerial builds the managerial (financial) dashboard over 12 months.
+// Com a tarifa do tenant (sem override de simulacao) o resultado fica em cache.
 func (uc *DashboardUseCase) Managerial(ctx context.Context, tenantID domain.UUID, tariffOverride float64) (*ManagerialDashboard, error) {
+	if tariffOverride > 0 {
+		return uc.buildManagerial(ctx, tenantID, tariffOverride)
+	}
+	return repository.Memo(ctx, tenantID, "managerial", func(ctx context.Context) (*ManagerialDashboard, error) {
+		return uc.buildManagerial(ctx, tenantID, 0)
+	})
+}
+
+func (uc *DashboardUseCase) buildManagerial(ctx context.Context, tenantID domain.UUID, tariffOverride float64) (*ManagerialDashboard, error) {
 	tariff, source := uc.Tariff(ctx, tenantID, tariffOverride)
 	now := time.Now()
 	start := domain.MonthStart(now).AddDate(0, -11, 0)
