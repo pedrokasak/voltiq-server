@@ -53,7 +53,9 @@ func (h *RiskHandler) GetRiskScore(w http.ResponseWriter, r *http.Request) {
 func (h *RiskHandler) GetAllRiskScores(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
 
-	scores, err := h.riskUseCase.GetAllRiskScores(r.Context(), tenantID)
+	// ?limit= (padrao 100, maximo 10000): maiores riscos primeiro.
+	limit := min(max(queryInt(r, "limit", 100), 1), 10000)
+	scores, err := h.riskUseCase.GetAllRiskScores(r.Context(), tenantID, limit)
 	if err != nil {
 		writeUseCaseError(w, err, "LIST_ERROR")
 		return

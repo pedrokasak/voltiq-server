@@ -77,6 +77,22 @@ func pct(part, total float64) float64 {
 	return round2(part / total * 100)
 }
 
+// Summaries returns every transformer of the tenant matching f with its
+// latest balance (uma unica consulta agregada).
+func (uc *DashboardUseCase) Summaries(ctx context.Context, tenantID domain.UUID, f repository.TransformerFilter) ([]*repository.TransformerSummary, error) {
+	return uc.allSummaries(ctx, tenantID, f)
+}
+
+// Evolution returns the monthly evolution of the last months with the
+// average regulatory limit of the network, without loading the transformers.
+func (uc *DashboardUseCase) Evolution(ctx context.Context, tenantID domain.UUID, months int) ([]MonthPoint, error) {
+	avgLimit, err := uc.transformerRepo.AvgLossLimit(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return uc.evolution(ctx, tenantID, months, avgLimit)
+}
+
 // allSummaries returns every transformer of the tenant with its latest balance.
 func (uc *DashboardUseCase) allSummaries(ctx context.Context, tenantID domain.UUID, f repository.TransformerFilter) ([]*repository.TransformerSummary, error) {
 	f.Limit = 0
@@ -147,15 +163,32 @@ type MapData struct {
 	WithoutLocation int             `json:"without_location"`
 	MissingCodes    []string        `json:"missing_location_codes"`
 	TariffBRLMWh    *float64        `json:"tariff_brl_mwh,omitempty"`
+	// Located e o total de trafos com coordenadas que atendem ao filtro;
+	// InView os que estao na area pedida; Truncated indica que nem todos os
+	// pontos da area vieram (priorizados por criticidade).
+	Located   int  `json:"located"`
+	InView    int  `json:"in_view"`
+	Truncated bool `json:"truncated"`
 }
 
-// MapFilter filters the map points.
+// MapFilter filters the map points. BBox (min_lat, min_lng, max_lat, max_lng)
+// restringe os pontos devolvidos a area visivel; Limit limita a quantidade
+// (os contadores e bounds continuam valendo para a rede inteira).
 type MapFilter struct {
 	Status       string
 	SubstationID string
 	GroupID      string
 	Search       string
+	BBox         *MapBounds
+	Limit        int
 }
+
+// Limites de pontos por resposta do mapa: com dezenas de milhares de trafos o
+// payload completo passava de 30 MB.
+const (
+	DefaultMapPoints = 3000
+	MaxMapPoints     = 10000
+)
 
 // Map returns the georeferenced transformers with their latest balance.
 // Valores em R$ so sao preenchidos quando financial for true.
@@ -221,7 +254,7 @@ func (uc *DashboardUseCase) Map(ctx context.Context, tenantID domain.UUID, f Map
 			rec := round2(excess / 1000 * tariff)
 			p.LossCostBRL, p.RecoverableBRL = &cost, &rec
 		}
-		out.Transformers = append(out.Transformers, p)
+		out.Located++
 		sumLat += p.Lat
 		sumLng += p.Lng
 		if b == nil {
@@ -230,10 +263,37 @@ func (uc *DashboardUseCase) Map(ctx context.Context, tenantID domain.UUID, f Map
 			b.MinLat, b.MaxLat = math.Min(b.MinLat, p.Lat), math.Max(b.MaxLat, p.Lat)
 			b.MinLng, b.MaxLng = math.Min(b.MinLng, p.Lng), math.Max(b.MaxLng, p.Lng)
 		}
+		if f.BBox != nil && (p.Lat < f.BBox.MinLat || p.Lat > f.BBox.MaxLat || p.Lng < f.BBox.MinLng || p.Lng > f.BBox.MaxLng) {
+			continue
+		}
+		out.Transformers = append(out.Transformers, p)
 	}
-	if n := float64(len(out.Transformers)); n > 0 {
+	if out.Located > 0 {
+		n := float64(out.Located)
 		out.Bounds = b
 		out.Center = &[2]float64{sumLat / n, sumLng / n}
+	}
+	out.InView = len(out.Transformers)
+	limit := f.Limit
+	if limit <= 0 {
+		limit = DefaultMapPoints
+	}
+	limit = min(limit, MaxMapPoints)
+	if len(out.Transformers) > limit {
+		// Prioriza o que pede acao: criticos, alerta, leituras atrasadas.
+		rank := map[string]int{"CRITICAL": 0, "WARNING": 1, "NORMAL": 2, "NO_DATA": 3}
+		sort.SliceStable(out.Transformers, func(i, j int) bool {
+			a, c := out.Transformers[i], out.Transformers[j]
+			if rank[a.Status] != rank[c.Status] {
+				return rank[a.Status] < rank[c.Status]
+			}
+			if a.StaleReadings != c.StaleReadings {
+				return a.StaleReadings
+			}
+			return deref(a.LimitUsagePct) > deref(c.LimitUsagePct)
+		})
+		out.Transformers = out.Transformers[:limit]
+		out.Truncated = true
 	}
 	if uc.substationRepo != nil {
 		subs, err := uc.substationRepo.List(ctx, tenantID)

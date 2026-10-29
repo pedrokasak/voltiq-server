@@ -101,6 +101,61 @@ func (r *BalanceRepository) GetByTransformerAndPeriod(
 	return balances, nil
 }
 
+// ListByTenantSince returns every balance of the tenant with period_start in
+// [start, end], grouped by transformer (mais recente primeiro, como
+// GetByTransformerAndPeriod). Uma consulta para a rede toda evita N+1.
+func (r *BalanceRepository) ListByTenantSince(ctx context.Context, tenantID domain.UUID, start, end time.Time) (map[domain.UUID][]*domain.TransformerBalance, error) {
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT b.id, b.tenant_id, b.transformer_id, b.period_start, b.period_end,
+			b.energy_injected_kwh, b.total_consumption_kwh, b.loss_kwh, b.loss_pct,
+			b.technical_loss_kwh, b.non_technical_loss_kwh, b.status, b.uc_count, b.calculated_at
+		FROM transformer_balance b
+		JOIN transformers t ON t.id = b.transformer_id AND t.deleted_at IS NULL
+		WHERE b.tenant_id = $1 AND b.period_start >= $2 AND b.period_start <= $3
+		ORDER BY b.transformer_id, b.period_start DESC, b.calculated_at DESC`, tenantID, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[domain.UUID][]*domain.TransformerBalance)
+	for rows.Next() {
+		b := &domain.TransformerBalance{}
+		if err := rows.Scan(&b.ID, &b.TenantID, &b.TransformerID, &b.PeriodStart, &b.PeriodEnd,
+			&b.EnergyInjectedKWh, &b.TotalConsumptionKWh, &b.LossKWh, &b.LossPct,
+			&b.TechnicalLossKWh, &b.NonTechnicalLossKWh, &b.Status, &b.UCCount, &b.CalculatedAt); err != nil {
+			return nil, err
+		}
+		out[b.TransformerID] = append(out[b.TransformerID], b)
+	}
+	return out, rows.Err()
+}
+
+// LatestByTenant returns the latest balance of each transformer of the tenant.
+func (r *BalanceRepository) LatestByTenant(ctx context.Context, tenantID domain.UUID) (map[domain.UUID]*domain.TransformerBalance, error) {
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT DISTINCT ON (b.transformer_id) b.id, b.tenant_id, b.transformer_id, b.period_start, b.period_end,
+			b.energy_injected_kwh, b.total_consumption_kwh, b.loss_kwh, b.loss_pct,
+			b.technical_loss_kwh, b.non_technical_loss_kwh, b.status, b.uc_count, b.calculated_at
+		FROM transformer_balance b
+		WHERE b.tenant_id = $1
+		ORDER BY b.transformer_id, b.period_start DESC, b.calculated_at DESC`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[domain.UUID]*domain.TransformerBalance)
+	for rows.Next() {
+		b := &domain.TransformerBalance{}
+		if err := rows.Scan(&b.ID, &b.TenantID, &b.TransformerID, &b.PeriodStart, &b.PeriodEnd,
+			&b.EnergyInjectedKWh, &b.TotalConsumptionKWh, &b.LossKWh, &b.LossPct,
+			&b.TechnicalLossKWh, &b.NonTechnicalLossKWh, &b.Status, &b.UCCount, &b.CalculatedAt); err != nil {
+			return nil, err
+		}
+		out[b.TransformerID] = b
+	}
+	return out, rows.Err()
+}
+
 // GetLatestByTransformer retrieves the latest balance for a transformer
 func (r *BalanceRepository) GetLatestByTransformer(
 	ctx context.Context,

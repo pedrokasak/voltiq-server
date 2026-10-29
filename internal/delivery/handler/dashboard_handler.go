@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -76,35 +77,34 @@ func queryFloat(r *http.Request, name string) float64 {
 // GetKPIs returns dashboard KPIs computed from the latest balance of each
 // transformer (single query).
 func (h *DashboardHandler) GetKPIs(w http.ResponseWriter, r *http.Request) {
-	op, err := h.dashboard.Map(r.Context(), middleware.GetTenantID(r.Context()), usecase.MapFilter{}, false)
+	items, err := h.dashboard.Summaries(r.Context(), middleware.GetTenantID(r.Context()), repository.TransformerFilter{})
 	if err != nil {
 		writeUseCaseError(w, err, "KPI_ERROR")
 		return
 	}
-	summ, err := h.dashboard.Operational(r.Context(), middleware.GetTenantID(r.Context()))
-	if err != nil {
-		writeUseCaseError(w, err, "KPI_ERROR")
-		return
-	}
-	k := &DashboardKPIs{
-		TotalTransformers:    summ.Network.Transformers,
-		TotalUCs:             summ.Network.ConsumingUnits,
-		TransformersNormal:   op.ByStatus["NORMAL"],
-		TransformersWarning:  op.ByStatus["WARNING"],
-		TransformersCritical: op.ByStatus["CRITICAL"],
-		TransformersNoData:   op.ByStatus["NO_DATA"],
-	}
+	k := &DashboardKPIs{TotalTransformers: len(items)}
 	var sumPct float64
 	var n int
-	for _, p := range op.Transformers {
-		if p.LossPct == nil {
+	for _, s := range items {
+		k.TotalUCs += s.UCCount
+		switch s.Status {
+		case "NORMAL":
+			k.TransformersNormal++
+		case "WARNING":
+			k.TransformersWarning++
+		case "CRITICAL":
+			k.TransformersCritical++
+		default:
+			k.TransformersNoData++
+		}
+		if s.LossPct == nil {
 			continue
 		}
-		sumPct += *p.LossPct
+		sumPct += *s.LossPct
 		n++
-		k.TotalEnergyKWh += deref(p.EnergyInjectedKWh)
-		k.TotalBilledKWh += deref(p.TotalConsumptionKWh)
-		k.TotalLossKWh += deref(p.LossKWh)
+		k.TotalEnergyKWh += deref(s.EnergyInjectedKWh)
+		k.TotalBilledKWh += deref(s.TotalConsumptionKWh)
+		k.TotalLossKWh += deref(s.LossKWh)
 	}
 	if n > 0 {
 		k.AverageLossPct = sumPct / float64(n)
@@ -124,29 +124,39 @@ func deref(v *float64) float64 {
 
 // GetTransformerCurrentStatus returns the current status of all transformers for quick dashboard
 func (h *DashboardHandler) GetTransformerCurrentStatus(w http.ResponseWriter, r *http.Request) {
-	m, err := h.dashboard.Map(r.Context(), middleware.GetTenantID(r.Context()), usecase.MapFilter{
-		Status: strings.ToUpper(r.URL.Query().Get("status")),
-	}, false)
+	items, err := h.dashboard.Summaries(r.Context(), middleware.GetTenantID(r.Context()), repository.TransformerFilter{
+		Status: strings.ToUpper(r.URL.Query().Get("status")), OrderBy: "loss_pct",
+	})
 	if err != nil {
 		writeUseCaseError(w, err, "STATUS_ERROR")
 		return
 	}
-	out := make([]TransformerCurrentStatus, 0, len(m.Transformers))
-	for _, p := range m.Transformers {
+	items = items[:min(len(items), listLimit(r))]
+	out := make([]TransformerCurrentStatus, 0, len(items))
+	for _, p := range items {
+		limit := deref(p.LossLimitPct)
+		if limit <= 0 {
+			limit = 10
+		}
 		s := TransformerCurrentStatus{
 			TransformerID: string(p.ID), Code: p.Code, SubstationName: p.SubstationName, Status: p.Status,
-			LossPct: deref(p.LossPct), LossLimitPct: p.LossLimitPct, EnergyInjectedKWh: deref(p.EnergyInjectedKWh),
+			LossPct: deref(p.LossPct), LossLimitPct: limit, EnergyInjectedKWh: deref(p.EnergyInjectedKWh),
 			TotalConsumptionKWh: deref(p.TotalConsumptionKWh), LossKWh: deref(p.LossKWh), UCCount: p.UCCount,
 			PeriodStart: p.LastPeriodStart, PeriodEnd: p.LastPeriodEnd, LastReadingAt: p.LastReadingAt,
 			HasBalance: p.LossPct != nil,
 		}
-		if p.LimitUsagePct != nil {
-			s.OverloadPct = *p.LimitUsagePct
-			s.IsOverloaded = deref(p.LossPct) >= p.LossLimitPct
+		if p.LossPct != nil {
+			s.OverloadPct = *p.LossPct / limit * 100
+			s.IsOverloaded = *p.LossPct >= limit
 		}
 		out = append(out, s)
 	}
 	request.WriteJSON(w, http.StatusOK, request.Success(out, ""))
+}
+
+// listLimit reads ?limit= for the full-network listings (padrao 1000, maximo 10000).
+func listLimit(r *http.Request) int {
+	return min(max(queryInt(r, "limit", 1000), 1), 10000)
 }
 
 // GetMonthlyLossHistory returns the aggregated loss of the last 12 months
@@ -197,14 +207,14 @@ func (h *DashboardHandler) GetKPISparklines(w http.ResponseWriter, r *http.Reque
 		writeUseCaseError(w, err, "SPARKLINE_ERROR")
 		return
 	}
-	op, err := h.dashboard.Operational(ctx, tenantID)
+	evo, err := h.dashboard.Evolution(ctx, tenantID, 1)
 	if err != nil {
 		writeUseCaseError(w, err, "SPARKLINE_ERROR")
 		return
 	}
 	limit := 10.0
-	if op.LatestMonth != nil {
-		limit = op.LatestMonth.LimitPct
+	if n := len(evo); n > 0 {
+		limit = evo[n-1].LimitPct
 	}
 	tariff, _ := h.dashboard.Tariff(ctx, tenantID, 0)
 	financial := canViewFinancial(r)
@@ -242,7 +252,7 @@ func (h *DashboardHandler) GetKPISparklines(w http.ResponseWriter, r *http.Reque
 
 // GetLossEvolution returns monthly loss evolution with ANEEL limit
 func (h *DashboardHandler) GetLossEvolution(w http.ResponseWriter, r *http.Request) {
-	op, err := h.dashboard.Operational(r.Context(), middleware.GetTenantID(r.Context()))
+	evolution, err := h.dashboard.Evolution(r.Context(), middleware.GetTenantID(r.Context()), 12)
 	if err != nil {
 		writeUseCaseError(w, err, "EVOLUTION_ERROR")
 		return
@@ -256,8 +266,8 @@ func (h *DashboardHandler) GetLossEvolution(w http.ResponseWriter, r *http.Reque
 		InjectedMWh     float64 `json:"injected_mwh"`
 		BilledMWh       float64 `json:"billed_mwh"`
 	}
-	points := make([]EvolutionPoint, 0, len(op.Evolution))
-	for _, p := range op.Evolution {
+	points := make([]EvolutionPoint, 0, len(evolution))
+	for _, p := range evolution {
 		points = append(points, EvolutionPoint{
 			Month: p.Month, TotalLossPct: p.LossPct, TechnicalPct: p.TechnicalPct,
 			NonTechnicalPct: p.NonTechnicalPct, AneelLimit: p.LimitPct, InjectedMWh: p.InjectedMWh, BilledMWh: p.BilledMWh,
@@ -289,17 +299,21 @@ func (h *DashboardHandler) GetLossComposition(w http.ResponseWriter, r *http.Req
 
 // GetTransformerStatusDistribution returns status donut data
 func (h *DashboardHandler) GetTransformerStatusDistribution(w http.ResponseWriter, r *http.Request) {
-	m, err := h.dashboard.Map(r.Context(), middleware.GetTenantID(r.Context()), usecase.MapFilter{}, false)
+	items, err := h.dashboard.Summaries(r.Context(), middleware.GetTenantID(r.Context()), repository.TransformerFilter{})
 	if err != nil {
 		writeUseCaseError(w, err, "STATUS_DIST_ERROR")
 		return
 	}
+	counts := map[string]int{"NORMAL": 0, "WARNING": 0, "CRITICAL": 0, "NO_DATA": 0}
+	for _, s := range items {
+		counts[s.Status]++
+	}
 	request.WriteJSON(w, http.StatusOK, request.Success(map[string]any{
-		"normal":   m.ByStatus["NORMAL"],
-		"warning":  m.ByStatus["WARNING"],
-		"critical": m.ByStatus["CRITICAL"],
-		"no_data":  m.ByStatus["NO_DATA"],
-		"total":    m.Total,
+		"normal":   counts["NORMAL"],
+		"warning":  counts["WARNING"],
+		"critical": counts["CRITICAL"],
+		"no_data":  counts["NO_DATA"],
+		"total":    len(items),
 	}, ""))
 }
 
@@ -388,7 +402,7 @@ func (h *DashboardHandler) GetFinancialTable(w http.ResponseWriter, r *http.Requ
 	ctx := r.Context()
 	tenantID := middleware.GetTenantID(ctx)
 	tariff, _ := h.dashboard.Tariff(ctx, tenantID, queryFloat(r, "tariff"))
-	m, err := h.dashboard.Map(ctx, tenantID, usecase.MapFilter{}, false)
+	items, err := h.dashboard.Summaries(ctx, tenantID, repository.TransformerFilter{})
 	if err != nil {
 		writeUseCaseError(w, err, "FINANCIAL_ERROR")
 		return
@@ -404,13 +418,17 @@ func (h *DashboardHandler) GetFinancialTable(w http.ResponseWriter, r *http.Requ
 		RevenueBRL          float64 `json:"revenue_brl"`
 		PotentialSavingsBRL float64 `json:"potential_savings_brl"`
 	}
-	rows := make([]FinancialRow, 0, len(m.Transformers))
-	for _, p := range m.Transformers {
+	rows := make([]FinancialRow, 0, len(items))
+	for _, p := range items {
 		if p.LossPct == nil {
 			continue
 		}
+		limit := deref(p.LossLimitPct)
+		if limit <= 0 {
+			limit = 10
+		}
 		loss, injected := deref(p.LossKWh), deref(p.EnergyInjectedKWh)
-		excess := loss - injected*p.LossLimitPct/100
+		excess := loss - injected*limit/100
 		if excess < 0 {
 			excess = 0
 		}
@@ -420,11 +438,15 @@ func (h *DashboardHandler) GetFinancialTable(w http.ResponseWriter, r *http.Requ
 			RevenueBRL: deref(p.TotalConsumptionKWh) / 1000 * tariff, PotentialSavingsBRL: excess / 1000 * tariff,
 		})
 	}
+	// Maior valor recuperavel primeiro; ?limit= controla o tamanho (padrao 1000).
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].PotentialSavingsBRL > rows[j].PotentialSavingsBRL })
+	rows = rows[:min(len(rows), listLimit(r))]
 	request.WriteJSON(w, http.StatusOK, request.Success(rows, ""))
 }
 
 // GetMap returns the georeferenced transformers, substations, bounds and
-// status counters (GET /dashboard/map?status=&substation_id=&group_id=&search=).
+// status counters (GET /dashboard/map?status=&substation_id=&group_id=&search=
+// &bbox=min_lat,min_lng,max_lat,max_lng&limit=).
 func (h *DashboardHandler) GetMap(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := usecase.MapFilter{Status: strings.ToUpper(q.Get("status")), Search: strings.TrimSpace(q.Get("search"))}
@@ -434,6 +456,22 @@ func (h *DashboardHandler) GetMap(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("group_id"); isUUID(v) {
 		f.GroupID = v
 	}
+	if parts := strings.Split(q.Get("bbox"), ","); len(parts) == 4 {
+		var v [4]float64
+		valid := true
+		for i, p := range parts {
+			n, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+			if err != nil {
+				valid = false
+				break
+			}
+			v[i] = n
+		}
+		if valid && v[0] <= v[2] && v[1] <= v[3] {
+			f.BBox = &usecase.MapBounds{MinLat: v[0], MinLng: v[1], MaxLat: v[2], MaxLng: v[3]}
+		}
+	}
+	f.Limit = queryInt(r, "limit", usecase.DefaultMapPoints)
 	m, err := h.dashboard.Map(r.Context(), middleware.GetTenantID(r.Context()), f, canViewFinancial(r))
 	if err != nil {
 		writeUseCaseError(w, err, "MAP_ERROR")

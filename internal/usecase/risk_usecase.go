@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/voltiq/server/internal/calc"
@@ -108,39 +109,41 @@ func (uc *RiskUseCase) GetAnomalies(ctx context.Context, transformerID domain.UU
 	}, nil
 }
 
-// GetAllRiskScores returns risk scores for all transformers of a tenant
-func (uc *RiskUseCase) GetAllRiskScores(ctx context.Context, tenantID domain.UUID) ([]*calc.RiskScore, error) {
+// GetAllRiskScores returns the risk scores of every transformer with balance
+// data, highest score first, limited to limit (0 = todos). Tres consultas
+// para a rede inteira em vez de tres por trafo.
+func (uc *RiskUseCase) GetAllRiskScores(ctx context.Context, tenantID domain.UUID, limit int) ([]*calc.RiskScore, error) {
 	transformers, err := uc.transformerRepo.GetByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	history, err := uc.balanceRepo.ListByTenantSince(ctx, tenantID, now.AddDate(0, -6, 0), now)
+	if err != nil {
+		return nil, err
+	}
+	latest, err := uc.balanceRepo.LatestByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	ucCounts, err := uc.ucRepo.CountByTransformer(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
 
 	riskScores := make([]*calc.RiskScore, 0, len(transformers))
-
 	for _, t := range transformers {
-		latestBalance, err := uc.balanceRepo.GetLatestByTransformer(ctx, t.ID)
-		if err != nil || latestBalance == nil {
-			// Skip transformers without balance data
-			continue
+		last := latest[t.ID]
+		if last == nil {
+			continue // sem balanco
 		}
-
-		// Get historical balances (last 6 periods)
-		sixMonthsAgo := time.Now().AddDate(0, -6, 0)
-		historicalBalances, err := uc.balanceRepo.GetByTransformerAndPeriod(ctx, t.ID, sixMonthsAgo, time.Now())
-		if err != nil {
-			continue
-		}
-
-		// Get UC count
-		ucs, err := uc.ucRepo.GetByTransformer(ctx, t.ID)
-		if err != nil {
-			continue
-		}
-
-		riskScore := calc.CalculateRiskScore(latestBalance, historicalBalances, t, len(ucs))
+		riskScore := calc.CalculateRiskScore(last, history[t.ID], t, ucCounts[t.ID])
 		riskScores = append(riskScores, &riskScore)
 	}
-
+	sort.SliceStable(riskScores, func(i, j int) bool { return riskScores[i].Score > riskScores[j].Score })
+	if limit > 0 && len(riskScores) > limit {
+		riskScores = riskScores[:limit]
+	}
 	return riskScores, nil
 }
 
@@ -150,21 +153,21 @@ func (uc *RiskUseCase) GetAllAnomalies(ctx context.Context, tenantID domain.UUID
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now()
+	byTransformer, err := uc.balanceRepo.ListByTenantSince(ctx, tenantID, now.AddDate(0, -monthsBack, 0), now)
+	if err != nil {
+		return nil, err
+	}
 
 	allAnomalies := make(map[domain.UUID][]calc.Anomaly)
-	startDate := time.Now().AddDate(0, -monthsBack, 0)
-
 	for _, t := range transformers {
-		balances, err := uc.balanceRepo.GetByTransformerAndPeriod(ctx, t.ID, startDate, time.Now())
-		if err != nil || len(balances) == 0 {
+		balances := byTransformer[t.ID]
+		if len(balances) == 0 {
 			continue
 		}
-
-		anomalies := calc.DetectAnomalies(t.ID, balances, t)
-		if len(anomalies) > 0 {
+		if anomalies := calc.DetectAnomalies(t.ID, balances, t); len(anomalies) > 0 {
 			allAnomalies[t.ID] = anomalies
 		}
 	}
-
 	return allAnomalies, nil
 }

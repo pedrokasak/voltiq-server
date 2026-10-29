@@ -45,7 +45,7 @@ func (r *ConsumingUnitRepository) Create(ctx context.Context, uc *domain.Consumi
 // GetByID retrieves a consuming unit by ID
 func (r *ConsumingUnitRepository) GetByID(ctx context.Context, id domain.UUID) (*domain.ConsumingUnit, error) {
 	query := `
-		SELECT id, tenant_id, transformer_id, uc_code, name, class, active, created_at, updated_at, deleted_at
+		SELECT id, tenant_id, transformer_id, uc_code, name, class, active, created_at, COALESCE(updated_at, created_at), deleted_at
 		FROM consuming_units
 		WHERE id = $1 AND deleted_at IS NULL /*tenant*/
 	`
@@ -79,7 +79,7 @@ func (r *ConsumingUnitRepository) GetByID(ctx context.Context, id domain.UUID) (
 // GetByTransformer retrieves all consuming units for a transformer
 func (r *ConsumingUnitRepository) GetByTransformer(ctx context.Context, transformerID domain.UUID) ([]*domain.ConsumingUnit, error) {
 	query := `
-		SELECT id, tenant_id, transformer_id, uc_code, name, class, active, created_at, updated_at, deleted_at
+		SELECT id, tenant_id, transformer_id, uc_code, name, class, active, created_at, COALESCE(updated_at, created_at), deleted_at
 		FROM consuming_units
 		WHERE transformer_id = $1 AND deleted_at IS NULL /*tenant*/
 		ORDER BY uc_code
@@ -121,7 +121,7 @@ func (r *ConsumingUnitRepository) GetByTransformer(ctx context.Context, transfor
 // GetByTenant retrieves all consuming units for a tenant
 func (r *ConsumingUnitRepository) GetByTenant(ctx context.Context, tenantID domain.UUID) ([]*domain.ConsumingUnit, error) {
 	query := `
-		SELECT id, tenant_id, transformer_id, uc_code, name, class, active, created_at, updated_at, deleted_at
+		SELECT id, tenant_id, transformer_id, uc_code, name, class, active, created_at, COALESCE(updated_at, created_at), deleted_at
 		FROM consuming_units
 		WHERE tenant_id = $1 AND deleted_at IS NULL
 		ORDER BY uc_code
@@ -229,6 +229,26 @@ func (r *ConsumingUnitRepository) RefsByTenant(ctx context.Context, tenantID dom
 	return out, rows.Err()
 }
 
+// CountByTransformer returns the number of active UCs per transformer of the tenant.
+func (r *ConsumingUnitRepository) CountByTransformer(ctx context.Context, tenantID domain.UUID) (map[domain.UUID]int, error) {
+	rows, err := r.db.Pool.Query(ctx, `SELECT transformer_id, COUNT(*) FROM consuming_units
+		WHERE tenant_id = $1 AND deleted_at IS NULL GROUP BY transformer_id`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[domain.UUID]int)
+	for rows.Next() {
+		var id domain.UUID
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}
+
 // CountByTenant returns the number of UCs of a tenant.
 func (r *ConsumingUnitRepository) CountByTenant(ctx context.Context, tenantID domain.UUID) (int, error) {
 	var n int
@@ -261,7 +281,7 @@ func (r *ConsumingUnitRepository) UpsertByCode(ctx context.Context, tx pgx.Tx, u
 func (r *ConsumingUnitRepository) GetByCode(ctx context.Context, tenantID domain.UUID, code string) (*domain.ConsumingUnit, error) {
 	u := &domain.ConsumingUnit{}
 	err := r.db.Pool.QueryRow(ctx, `
-		SELECT id, tenant_id, transformer_id, uc_code, COALESCE(name, ''), class, active, created_at, updated_at, deleted_at
+		SELECT id, tenant_id, transformer_id, uc_code, COALESCE(name, ''), class, active, created_at, COALESCE(updated_at, created_at), deleted_at
 		FROM consuming_units WHERE tenant_id = $1 AND uc_code = $2 AND deleted_at IS NULL`, tenantID, code,
 	).Scan(&u.ID, &u.TenantID, &u.TransformerID, &u.UCCode, &u.Name, &u.Class, &u.Active, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
 	if err == pgx.ErrNoRows {

@@ -57,7 +57,7 @@ func (r *TransformerRepository) GetByID(ctx context.Context, id domain.UUID) (*d
 	query := `
 		SELECT id, tenant_id, substation_id, code, power_kva, primary_voltage_kv,
 			secondary_voltage_v, lat, lng, core_loss_kw, winding_loss_kw,
-			loss_limit_pct, active, created_at, updated_at, deleted_at
+			loss_limit_pct, active, created_at, COALESCE(updated_at, created_at), deleted_at
 		FROM transformers
 		WHERE id = $1 AND deleted_at IS NULL /*tenant*/
 	`
@@ -99,7 +99,7 @@ func (r *TransformerRepository) GetByTenant(ctx context.Context, tenantID domain
 	query := `
 		SELECT id, tenant_id, substation_id, code, power_kva, primary_voltage_kv,
 			secondary_voltage_v, lat, lng, core_loss_kw, winding_loss_kw,
-			loss_limit_pct, active, created_at, updated_at, deleted_at
+			loss_limit_pct, active, created_at, COALESCE(updated_at, created_at), deleted_at
 		FROM transformers
 		WHERE tenant_id = $1 AND deleted_at IS NULL
 		ORDER BY code
@@ -195,7 +195,7 @@ func (r *TransformerRepository) Delete(ctx context.Context, id domain.UUID) erro
 
 const transformerColumns = `id, tenant_id, substation_id, code, power_kva, primary_voltage_kv,
 	secondary_voltage_v, lat, lng, core_loss_kw, winding_loss_kw,
-	loss_limit_pct, active, created_at, updated_at, deleted_at`
+	loss_limit_pct, active, created_at, COALESCE(updated_at, created_at), deleted_at`
 
 func scanTransformer(row pgx.Row) (*domain.Transformer, error) {
 	t := &domain.Transformer{}
@@ -284,6 +284,15 @@ type TransformerSummary struct {
 	AlertsLast30d       int        `json:"alerts_last_30d"`
 }
 
+// AvgLossLimit returns the average regulatory loss limit of the active
+// network (10% quando o trafo nao define limite).
+func (r *TransformerRepository) AvgLossLimit(ctx context.Context, tenantID domain.UUID) (float64, error) {
+	var avg float64
+	err := r.db.Pool.QueryRow(ctx, `SELECT COALESCE(AVG(COALESCE(NULLIF(loss_limit_pct, 0), 10)), 10)::float8
+		FROM transformers WHERE tenant_id = $1 AND deleted_at IS NULL`, tenantID).Scan(&avg)
+	return avg, err
+}
+
 // ListSummaries lists transformers of a tenant with their latest balance.
 // Returns the page and the total matching the filter.
 func (r *TransformerRepository) ListSummaries(ctx context.Context, tenantID domain.UUID, f TransformerFilter) ([]*TransformerSummary, int, error) {
@@ -324,38 +333,54 @@ func (r *TransformerRepository) ListSummaries(ctx context.Context, tenantID doma
 		order = "t.updated_at DESC NULLS LAST, t.code"
 	}
 
-	base := `
-		FROM transformers t
-		LEFT JOIN substations s ON s.id = t.substation_id
-		LEFT JOIN LATERAL (
-			SELECT status, loss_pct::float8 AS loss_pct, loss_kwh::float8 AS loss_kwh,
+	// Agregados calculados uma vez por tenant e unidos por hash: com dezenas de
+	// milhares de trafos, subconsultas correlacionadas por linha (ultimo
+	// balanco, UCs, ultima leitura, alertas) levavam segundos.
+	ctes := `
+		WITH b AS (
+			SELECT DISTINCT ON (transformer_id) transformer_id, status,
+				loss_pct::float8 AS loss_pct, loss_kwh::float8 AS loss_kwh,
 				energy_injected_kwh::float8 AS energy_injected_kwh,
 				total_consumption_kwh::float8 AS total_consumption_kwh,
 				technical_loss_kwh::float8 AS technical_loss_kwh,
 				non_technical_loss_kwh::float8 AS non_technical_loss_kwh,
 				period_start, period_end, calculated_at
 			FROM transformer_balance
-			WHERE transformer_id = t.id
-			ORDER BY period_start DESC, calculated_at DESC
-			LIMIT 1
-		) b ON true
+			WHERE tenant_id = $1
+			ORDER BY transformer_id, period_start DESC, calculated_at DESC
+		), uc AS (
+			SELECT transformer_id, COUNT(*) AS n FROM consuming_units
+			WHERE tenant_id = $1 AND deleted_at IS NULL GROUP BY transformer_id
+		), rd AS (
+			SELECT transformer_id, MAX(reading_at) AS last_reading_at FROM transformer_readings
+			WHERE tenant_id = $1 GROUP BY transformer_id
+		), al AS (
+			SELECT transformer_id, COUNT(*) AS n FROM alerts
+			WHERE tenant_id = $1 AND deleted_at IS NULL AND created_at >= NOW() - INTERVAL '30 days'
+			GROUP BY transformer_id
+		)`
+	base := `
+		FROM transformers t
+		LEFT JOIN substations s ON s.id = t.substation_id
+		LEFT JOIN b ON b.transformer_id = t.id
+		LEFT JOIN uc ON uc.transformer_id = t.id
+		LEFT JOIN rd ON rd.transformer_id = t.id
+		LEFT JOIN al ON al.transformer_id = t.id
 		WHERE ` + strings.Join(where, " AND ")
 
 	var total int
-	if err := r.db.Pool.QueryRow(ctx, "SELECT COUNT(*) "+base, args...).Scan(&total); err != nil {
+	if err := r.db.Pool.QueryRow(ctx, ctes+" SELECT COUNT(*) "+base, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
-	query := `SELECT t.id, t.tenant_id, t.substation_id, t.code, t.power_kva, t.primary_voltage_kv,
+	query := ctes + ` SELECT t.id, t.tenant_id, t.substation_id, t.code, t.power_kva, t.primary_voltage_kv,
 			t.secondary_voltage_v, t.lat, t.lng, t.core_loss_kw, t.winding_loss_kw,
-			t.loss_limit_pct, t.active, t.created_at, t.updated_at, t.deleted_at,
+			t.loss_limit_pct, t.active, t.created_at, COALESCE(t.updated_at, t.created_at), t.deleted_at,
 			s.code, s.name,
-			(SELECT COUNT(*) FROM consuming_units u WHERE u.transformer_id = t.id AND u.deleted_at IS NULL),
+			COALESCE(uc.n, 0),
 			COALESCE(b.status, 'NO_DATA'), b.loss_pct, b.loss_kwh, b.energy_injected_kwh, b.total_consumption_kwh,
 			b.technical_loss_kwh, b.non_technical_loss_kwh, b.period_start, b.period_end, b.calculated_at,
-			(SELECT MAX(reading_at) FROM transformer_readings tr WHERE tr.transformer_id = t.id),
-			(SELECT COUNT(*) FROM alerts a WHERE a.transformer_id = t.id AND a.deleted_at IS NULL
-				AND a.created_at >= NOW() - INTERVAL '30 days')
+			rd.last_reading_at, COALESCE(al.n, 0)
 		` + base + " ORDER BY " + order
 	if f.Limit > 0 {
 		args = append(args, f.Limit, f.Offset)
