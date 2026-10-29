@@ -16,11 +16,12 @@ internal/
   delivery/router/       rotas e permissões
   domain/                tipos, papéis/permissões, limites de plano, validações
   email/ notify/         Resend e Z-API
+  aneel/                 dados abertos da ANEEL (tarifas homologadas)
   ingestion/             leitura de CSV/XLSX, mapeamento de colunas, validação
   jobs/                  agendador em processo (trial, cobrança, balanço diário...)
   repository/            acesso ao banco (filtro por tenant + variáveis de RLS)
   usecase/               regras de negócio
-migrations/              SQL numerado (001-012)
+migrations/              SQL numerado (001-013)
 scripts/migrate.sh       aplica as migrações em ordem
 tests/                   integração (exige banco) e segurança
 docs/endpoints.md        catálogo de rotas, permissões e jobs

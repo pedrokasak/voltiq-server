@@ -448,3 +448,60 @@ func TestSuperAdmin(t *testing.T) {
 		t.Errorf("auditoria sem ativação: %s", env.Data)
 	}
 }
+
+func TestTraining(t *testing.T) {
+	ta := newTestApp(t)
+	owner, _ := ta.signup(t)
+
+	code, env, raw := owner.do(http.MethodGet, "/training/progress", nil)
+	expect(t, "progresso inicial", code, http.StatusOK, raw)
+	status := decode[map[string]any](t, env)
+	if status["progress_pct"].(float64) != 0 || status["next_lesson"].(string) != "prodist-balanco" {
+		t.Fatalf("progresso inicial inesperado: %s", env.Data)
+	}
+
+	code, env, raw = owner.do(http.MethodPut, "/training/progress/prodist-balanco", map[string]any{"quiz_score": 50})
+	expect(t, "concluir lição", code, http.StatusOK, raw)
+	code, env, raw = owner.do(http.MethodPut, "/training/progress/prodist-balanco", map[string]any{"quiz_score": 100})
+	expect(t, "refazer quiz", code, http.StatusOK, raw)
+	status = decode[map[string]any](t, env)
+	completed := status["completed"].([]any)
+	if len(completed) != 1 || completed[0].(map[string]any)["quiz_score"].(float64) != 100 || status["progress_pct"].(float64) != 10 {
+		t.Fatalf("progresso após concluir: %s", env.Data)
+	}
+
+	code, _, raw = owner.do(http.MethodPut, "/training/progress/nao-existe", nil)
+	expect(t, "lição desconhecida", code, http.StatusUnprocessableEntity, raw)
+	code, _, raw = owner.do(http.MethodPut, "/training/progress/mapa", map[string]any{"quiz_score": 101})
+	expect(t, "nota inválida", code, http.StatusUnprocessableEntity, raw)
+
+	code, env, raw = owner.do(http.MethodGet, "/training/team", nil)
+	expect(t, "equipe", code, http.StatusOK, raw)
+	team := decode[map[string]any](t, env)
+	if team["total_lessons"].(float64) != 10 || len(team["members"].([]any)) != 1 {
+		t.Fatalf("equipe inesperada: %s", env.Data)
+	}
+
+	// outro usuário do mesmo tenant tem progresso próprio e não vê a equipe
+	email := "viewer-" + uuid.New().String()[:8] + "@example.com"
+	code, env, raw = owner.do(http.MethodPost, "/invites", map[string]string{"email": email, "role": "VIEWER"})
+	expect(t, "convite", code, http.StatusCreated, raw)
+	token := decode[map[string]any](t, env)["token"].(string)
+	viewer := &session{t: t, base: owner.base}
+	code, env, raw = viewer.do(http.MethodPost, "/invites/"+token+"/accept", map[string]string{"name": "Viewer", "password": "senhaForte123"})
+	expect(t, "aceitar convite", code, http.StatusOK, raw)
+	viewer.token = decode[map[string]any](t, env)["token"].(string)
+	code, env, raw = viewer.do(http.MethodGet, "/training/progress", nil)
+	expect(t, "progresso do viewer", code, http.StatusOK, raw)
+	if decode[map[string]any](t, env)["progress_pct"].(float64) != 0 {
+		t.Fatalf("viewer herdou progresso do owner: %s", env.Data)
+	}
+	code, _, raw = viewer.do(http.MethodGet, "/training/team", nil)
+	expect(t, "viewer equipe", code, http.StatusForbidden, raw)
+
+	code, env, raw = owner.do(http.MethodDelete, "/training/progress/prodist-balanco", nil)
+	expect(t, "desfazer", code, http.StatusOK, raw)
+	if decode[map[string]any](t, env)["progress_pct"].(float64) != 0 {
+		t.Fatalf("lição não foi desfeita: %s", env.Data)
+	}
+}

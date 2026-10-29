@@ -96,6 +96,7 @@ func Build(ctx context.Context, opt Options) (*App, error) {
 	dunningRepo := repository.NewDunningRepository(db)
 	metricsRepo := repository.NewMetricsRepository(db)
 	prorationRepo := repository.NewProrationRepository(db)
+	trainingRepo := repository.NewTrainingRepository(db)
 
 	// Gateway de pagamento
 	var paymentProvider payment.PaymentProvider
@@ -167,6 +168,7 @@ func Build(ctx context.Context, opt Options) (*App, error) {
 		BalanceHandler:       handler.NewBalanceHandler(balanceUC, reportUC),
 		ImportHandler:        handler.NewImportHandler(importUC),
 		AlertHandler:         handler.NewAlertHandler(alertUC),
+		TrainingHandler:      handler.NewTrainingHandler(usecase.NewTrainingUseCase(trainingRepo)),
 		AneelHandler: handler.NewAneelHandler(aneel.NewClient(getEnv("ANEEL_OPEN_DATA_URL", ""),
 			getEnv("ANEEL_TARIFF_RESOURCE_ID", ""), nil)),
 		RiskHandler:            handler.NewRiskHandler(riskUC),

@@ -26,6 +26,7 @@ type Config struct {
 	ImportHandler          *handler.ImportHandler
 	AlertHandler           *handler.AlertHandler
 	AneelHandler           *handler.AneelHandler
+	TrainingHandler        *handler.TrainingHandler
 	RiskHandler            *handler.RiskHandler
 	DashboardHandler       *handler.DashboardHandler
 	ExportHandler          *handler.ExportHandler
@@ -115,6 +116,13 @@ func Setup(cfg Config) *chi.Mux {
 			r.With(perm(domain.PermissionTenantManage)).Post("/onboarding/complete", cfg.AccountHandler.CompleteOnboarding)
 			r.Get("/tenant/settings", cfg.AccountHandler.GetSettings)
 			r.With(perm(domain.PermissionTenantManage)).Put("/tenant/settings", cfg.AccountHandler.UpdateSettings)
+			if cfg.TrainingHandler != nil {
+				// treinamento in-app: progresso do proprio usuario; equipe para quem gerencia usuarios
+				r.Get("/training/progress", cfg.TrainingHandler.Progress)
+				r.Put("/training/progress/{lesson}", cfg.TrainingHandler.Complete)
+				r.Delete("/training/progress/{lesson}", cfg.TrainingHandler.Reset)
+				r.With(perm(domain.PermissionUserManage)).Get("/training/team", cfg.TrainingHandler.Team)
+			}
 			if cfg.AneelHandler != nil {
 				// dados abertos da ANEEL (tarifa de referencia do tenant)
 				r.Get("/aneel/distributors", cfg.AneelHandler.Distributors)

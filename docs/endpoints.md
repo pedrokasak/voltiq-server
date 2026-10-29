@@ -67,6 +67,18 @@ as permissões do usuário, limites do plano, uso e progresso do onboarding.
 | DELETE | /invites/{id} | users:manage |
 | POST | /invites/{id}/resend | users:manage |
 
+### Treinamento in-app
+| Método | Rota | Permissão |
+|---|---|---|
+| GET | /training/progress | autenticado (lições, concluídas com nota do quiz, % e próxima lição) |
+| PUT | /training/progress/{lesson} `{quiz_score}` | autenticado (mantém a melhor nota) |
+| DELETE | /training/progress/{lesson} | autenticado (desfaz) |
+| GET | /training/team | users:manage (progresso de cada usuário do tenant) |
+
+Lições: prodist-balanco, perdas-tecnicas, cadastro-rede, importacao-leituras,
+dashboard-operacional, dashboard-gerencial, mapa, alertas, relatorios-aneel,
+usuarios-permissoes (conteúdo no frontend). Migração 013.
+
 ### Dados abertos da ANEEL
 | Método | Rota | Descrição |
 |---|---|---|
