@@ -3,8 +3,8 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/domain"
 )
 
 // RequireFinancialAccess middleware bloqueia ENGINEER/VIEWER em endpoints financeiros

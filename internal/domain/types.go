@@ -135,28 +135,28 @@ const (
 
 // Tenant represents a company/cooperative client of the SaaS
 type Tenant struct {
-	ID                   UUID       `json:"id"`
-	Name                 string     `json:"name"`
-	Document             string     `json:"document"`
-	Plan                 TenantPlan `json:"plan"`
-	Status               TenantStatus `json:"status"`
-	TrialUntil           time.Time  `json:"trial_until"`
-	TrialExpiresAt       *time.Time `json:"trial_expires_at"`
-	MaxUsers             int        `json:"max_users"`
-	SeatCount            int        `json:"seat_count"`
-	Features             map[string]any `json:"features"`
-	Active               bool       `json:"active"`
-	ActivatedAt          *time.Time `json:"activated_at"`
-	SuspendedAt          *time.Time `json:"suspended_at"`
-	CancelledAt          *time.Time `json:"cancelled_at"`
-	PaymentCustomerID    *string    `json:"payment_customer_id"`
-	PaymentSubscriptionID *string   `json:"payment_subscription_id"`
-	Address              string     `json:"address"`
-	AddressNumber        string     `json:"address_number"`
-	Province             string     `json:"province"`
-	PostalCode           string     `json:"postal_code"`
-	CreatedAt            time.Time  `json:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at"`
+	ID                    UUID           `json:"id"`
+	Name                  string         `json:"name"`
+	Document              string         `json:"document"`
+	Plan                  TenantPlan     `json:"plan"`
+	Status                TenantStatus   `json:"status"`
+	TrialUntil            time.Time      `json:"trial_until"`
+	TrialExpiresAt        *time.Time     `json:"trial_expires_at"`
+	MaxUsers              int            `json:"max_users"`
+	SeatCount             int            `json:"seat_count"`
+	Features              map[string]any `json:"features"`
+	Active                bool           `json:"active"`
+	ActivatedAt           *time.Time     `json:"activated_at"`
+	SuspendedAt           *time.Time     `json:"suspended_at"`
+	CancelledAt           *time.Time     `json:"cancelled_at"`
+	PaymentCustomerID     *string        `json:"payment_customer_id"`
+	PaymentSubscriptionID *string        `json:"payment_subscription_id"`
+	Address               string         `json:"address"`
+	AddressNumber         string         `json:"address_number"`
+	Province              string         `json:"province"`
+	PostalCode            string         `json:"postal_code"`
+	CreatedAt             time.Time      `json:"created_at"`
+	UpdatedAt             time.Time      `json:"updated_at"`
 }
 
 // ListTenantsFilter holds filtering and pagination options for listing tenants
@@ -359,15 +359,15 @@ const (
 
 // Invite represents a user invitation
 type Invite struct {
-	ID          UUID         `json:"id"`
-	TenantID    UUID         `json:"tenant_id"`
-	Email       string       `json:"email"`
-	Role        UserRole     `json:"role"`
-	Token       string       `json:"token"`
-	Status      InviteStatus `json:"status"`
-	InvitedBy   UUID         `json:"invited_by"`
-	AcceptedAt  *time.Time   `json:"accepted_at"`
-	ExpiresAt   time.Time    `json:"expires_at"`
-	CreatedAt   time.Time    `json:"created_at"`
-	DeletedAt   *time.Time   `json:"deleted_at"`
+	ID         UUID         `json:"id"`
+	TenantID   UUID         `json:"tenant_id"`
+	Email      string       `json:"email"`
+	Role       UserRole     `json:"role"`
+	Token      string       `json:"token"`
+	Status     InviteStatus `json:"status"`
+	InvitedBy  UUID         `json:"invited_by"`
+	AcceptedAt *time.Time   `json:"accepted_at"`
+	ExpiresAt  time.Time    `json:"expires_at"`
+	CreatedAt  time.Time    `json:"created_at"`
+	DeletedAt  *time.Time   `json:"deleted_at"`
 }

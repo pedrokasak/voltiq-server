@@ -20,9 +20,9 @@ type HealthStatus struct {
 
 // HealthReport represents the overall health report
 type HealthReport struct {
-	Status    string                 `json:"status"`
-	Timestamp time.Time              `json:"timestamp"`
-	Version   string                 `json:"version"`
+	Status    string                  `json:"status"`
+	Timestamp time.Time               `json:"timestamp"`
+	Version   string                  `json:"version"`
 	Checks    map[string]HealthStatus `json:"checks"`
 }
 

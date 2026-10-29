@@ -42,45 +42,45 @@ func (m *MockEmailProvider) SendEmail(ctx context.Context, input SendEmailInput)
 
 func (m *MockEmailProvider) SendTemplateEmail(ctx context.Context, input SendTemplateEmailInput) error {
 	return m.SendEmail(ctx, SendEmailInput{
-		To:      input.To,
-		Subject: input.Subject,
+		To:       input.To,
+		Subject:  input.Subject,
 		HTMLBody: "template: " + input.TemplateID,
-		From:    input.From,
-		ReplyTo: input.ReplyTo,
+		From:     input.From,
+		ReplyTo:  input.ReplyTo,
 	})
 }
 
 // TestGetDunningSubject tests the subject generation for each stage
 func TestGetDunningSubject(t *testing.T) {
 	tests := []struct {
-		name       string
-		stage      int
-		planName   string
-		expected   string
+		name     string
+		stage    int
+		planName string
+		expected string
 	}{
 		{
-			name:       "stage 1",
-			stage:      1,
-			planName:   "Plano Starter",
-			expected:   "[Voltiq] Pagamento em atraso — Plano Starter — 1º aviso",
+			name:     "stage 1",
+			stage:    1,
+			planName: "Plano Starter",
+			expected: "[Voltiq] Pagamento em atraso — Plano Starter — 1º aviso",
 		},
 		{
-			name:       "stage 2",
-			stage:      2,
-			planName:   "Plano Pro",
-			expected:   "[Voltiq] Pagamento em atraso — Plano Pro — 2º aviso (suspensão em 8 dias)",
+			name:     "stage 2",
+			stage:    2,
+			planName: "Plano Pro",
+			expected: "[Voltiq] Pagamento em atraso — Plano Pro — 2º aviso (suspensão em 8 dias)",
 		},
 		{
-			name:       "stage 3",
-			stage:      3,
-			planName:   "Plano Enterprise",
-			expected:   "[Voltiq] ÚLTIMO AVISO — Plano Enterprise — Suspensão amanhã",
+			name:     "stage 3",
+			stage:    3,
+			planName: "Plano Enterprise",
+			expected: "[Voltiq] ÚLTIMO AVISO — Plano Enterprise — Suspensão amanhã",
 		},
 		{
-			name:       "invalid stage defaults to stage 1",
-			stage:      99,
-			planName:   "Plano Teste",
-			expected:   "[Voltiq] Pagamento em atraso — Plano Teste",
+			name:     "invalid stage defaults to stage 1",
+			stage:    99,
+			planName: "Plano Teste",
+			expected: "[Voltiq] Pagamento em atraso — Plano Teste",
 		},
 	}
 

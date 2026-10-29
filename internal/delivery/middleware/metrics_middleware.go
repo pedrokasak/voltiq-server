@@ -39,12 +39,12 @@ func (m *MetricsMiddleware) Handler(next http.Handler) http.Handler {
 
 		// Track metrics
 		duration := time.Since(start)
-		
+
 		if m.requestCount[method] == nil {
 			m.requestCount[method] = make(map[string]int64)
 			m.requestLatency[method] = make(map[string][]time.Duration)
 		}
-		
+
 		m.requestCount[method][routePattern]++
 		m.requestLatency[method][routePattern] = append(m.requestLatency[method][routePattern], duration)
 	})
@@ -61,15 +61,15 @@ func (m *MetricsMiddleware) GetRequestCount(method, route string) int64 {
 // GetMetrics returns all metrics in Prometheus format
 func (m *MetricsMiddleware) GetMetrics() string {
 	var result string
-	
+
 	result += "# HELP api_requests_total Total number of API requests\n"
 	result += "# TYPE api_requests_total counter\n"
-	
+
 	for method, routes := range m.requestCount {
 		for route, count := range routes {
 			result += "api_requests_total{method=\"" + method + "\",endpoint=\"" + route + "\"} " + strconv.FormatInt(count, 10) + "\n"
 		}
 	}
-	
+
 	return result
 }

@@ -20,7 +20,7 @@ type AlertHandler struct {
 // AlertConfigRequest represents an alert configuration request
 type AlertConfigRequest struct {
 	TransformerID string `json:"transformer_id"`
-	Type          string `json:"type"`   // WARNING, CRITICAL
+	Type          string `json:"type"`    // WARNING, CRITICAL
 	Channel       string `json:"channel"` // EMAIL, WHATSAPP
 	Recipient     string `json:"recipient"`
 }

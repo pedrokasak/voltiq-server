@@ -164,24 +164,24 @@ func (r *MetricsRepository) GetLatestMetrics(ctx context.Context) (*DailyBilling
 
 // DailyBillingMetrics represents daily aggregated billing metrics
 type DailyBillingMetrics struct {
-	Date                  time.Time
-	MRRCents              int64
-	ARRCents              int64
-	ActiveSubscriptions   int
-	ChurnedSubscriptions  int
-	NewSubscriptions      int
-	ExpansionCents        int64
-	ContractionCents      int64
-	TrialConversions      int
-	TrialExpired          int
-	ByPlan                map[string]PlanMetrics
+	Date                 time.Time
+	MRRCents             int64
+	ARRCents             int64
+	ActiveSubscriptions  int
+	ChurnedSubscriptions int
+	NewSubscriptions     int
+	ExpansionCents       int64
+	ContractionCents     int64
+	TrialConversions     int
+	TrialExpired         int
+	ByPlan               map[string]PlanMetrics
 }
 
 // PlanMetrics represents metrics broken down by plan
 type PlanMetrics struct {
-	Count        int   `json:"count"`
-	MRRCents     int64 `json:"mrr_cents"`
-	Subscriptions int  `json:"subscriptions"`
+	Count         int   `json:"count"`
+	MRRCents      int64 `json:"mrr_cents"`
+	Subscriptions int   `json:"subscriptions"`
 }
 
 // ComputeDailyMetrics calculates billing metrics for a given date
@@ -298,16 +298,16 @@ func (r *MetricsRepository) ComputeDailyMetrics(ctx context.Context, date time.T
 	// This would require historical plan data
 
 	return &DailyBillingMetrics{
-		Date:                  dayStart,
-		MRRCents:              mrrCents,
-		ARRCents:              arrCents,
-		ActiveSubscriptions:   activeSubs,
-		ChurnedSubscriptions:  churnedSubs,
-		NewSubscriptions:      newSubs,
-		TrialConversions:      trialConversions,
-		TrialExpired:          trialExpired,
-		ByPlan:                byPlan,
-		ExpansionCents:        0,
-		ContractionCents:      0,
+		Date:                 dayStart,
+		MRRCents:             mrrCents,
+		ARRCents:             arrCents,
+		ActiveSubscriptions:  activeSubs,
+		ChurnedSubscriptions: churnedSubs,
+		NewSubscriptions:     newSubs,
+		TrialConversions:     trialConversions,
+		TrialExpired:         trialExpired,
+		ByPlan:               byPlan,
+		ExpansionCents:       0,
+		ContractionCents:     0,
 	}, nil
 }

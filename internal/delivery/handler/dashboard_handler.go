@@ -21,20 +21,20 @@ type DashboardHandler struct {
 
 // TransformerCurrentStatus represents the current status of a transformer for quick dashboard
 type TransformerCurrentStatus struct {
-	TransformerID   string             `json:"transformer_id"`
-	Code            string             `json:"code"`
-	Status          domain.BalanceStatus `json:"status"`
-	LossPct         float64            `json:"loss_pct"`
-	LossLimitPct    float64            `json:"loss_limit_pct"`
-	EnergyInjectedKWh float64          `json:"energy_injected_kwh"`
-	TotalConsumptionKWh float64        `json:"total_consumption_kwh"`
-	LossKWh         float64            `json:"loss_kwh"`
-	UCCount         int                `json:"uc_count"`
-	PeriodStart     time.Time          `json:"period_start"`
-	PeriodEnd       time.Time          `json:"period_end"`
-	CalculatedAt    time.Time          `json:"calculated_at"`
-	IsOverloaded    bool               `json:"is_overloaded"`
-	OverloadPct     float64            `json:"overload_pct"`
+	TransformerID       string               `json:"transformer_id"`
+	Code                string               `json:"code"`
+	Status              domain.BalanceStatus `json:"status"`
+	LossPct             float64              `json:"loss_pct"`
+	LossLimitPct        float64              `json:"loss_limit_pct"`
+	EnergyInjectedKWh   float64              `json:"energy_injected_kwh"`
+	TotalConsumptionKWh float64              `json:"total_consumption_kwh"`
+	LossKWh             float64              `json:"loss_kwh"`
+	UCCount             int                  `json:"uc_count"`
+	PeriodStart         time.Time            `json:"period_start"`
+	PeriodEnd           time.Time            `json:"period_end"`
+	CalculatedAt        time.Time            `json:"calculated_at"`
+	IsOverloaded        bool                 `json:"is_overloaded"`
+	OverloadPct         float64              `json:"overload_pct"`
 }
 
 // DashboardKPIs contains dashboard key performance indicators
@@ -299,9 +299,9 @@ func (h *DashboardHandler) GetKPISparklines(w http.ResponseWriter, r *http.Reque
 	}
 	for i, agg := range monthlyAggregates {
 		lossPoints[i] = SparklinePointWithLimit{
-			Date:      agg.Month.Format("2006-01"),
-			Value:     agg.AvgLossPct,
-			Limit:     avgAneelLimit,
+			Date:  agg.Month.Format("2006-01"),
+			Value: agg.AvgLossPct,
+			Limit: avgAneelLimit,
 		}
 	}
 
@@ -343,10 +343,10 @@ func (h *DashboardHandler) GetKPISparklines(w http.ResponseWriter, r *http.Reque
 	}
 
 	response := map[string]any{
-		"energy_injected":  energyInjectedPoints,
-		"total_loss":       lossPoints,
-		"loss_cost":        costPoints,
-		"billed_revenue":   revenuePoints,
+		"energy_injected":   energyInjectedPoints,
+		"total_loss":        lossPoints,
+		"loss_cost":         costPoints,
+		"billed_revenue":    revenuePoints,
 		"potential_savings": savingsPoints,
 	}
 
@@ -380,11 +380,11 @@ func (h *DashboardHandler) GetLossEvolution(w http.ResponseWriter, r *http.Reque
 	}
 
 	type EvolutionPoint struct {
-		Month         string  `json:"month"`
-		TotalLossPct  float64 `json:"total_loss_pct"`
-		TechnicalPct  float64 `json:"technical_pct"`
+		Month           string  `json:"month"`
+		TotalLossPct    float64 `json:"total_loss_pct"`
+		TechnicalPct    float64 `json:"technical_pct"`
 		NonTechnicalPct float64 `json:"non_technical_pct"`
-		AneelLimit    float64 `json:"aneel_limit"`
+		AneelLimit      float64 `json:"aneel_limit"`
 	}
 
 	points := make([]EvolutionPoint, len(monthlyAggregates))
@@ -396,11 +396,11 @@ func (h *DashboardHandler) GetLossEvolution(w http.ResponseWriter, r *http.Reque
 			nonTechPct = (agg.TotalNonTechnicalLoss / agg.TotalEnergyInjected) * 100
 		}
 		points[i] = EvolutionPoint{
-			Month:            agg.Month.Format("2006-01"),
-			TotalLossPct:     agg.AvgLossPct,
-			TechnicalPct:     techPct,
-			NonTechnicalPct:  nonTechPct,
-			AneelLimit:       avgAneelLimit,
+			Month:           agg.Month.Format("2006-01"),
+			TotalLossPct:    agg.AvgLossPct,
+			TechnicalPct:    techPct,
+			NonTechnicalPct: nonTechPct,
+			AneelLimit:      avgAneelLimit,
 		}
 	}
 
@@ -427,9 +427,9 @@ func (h *DashboardHandler) GetLossComposition(w http.ResponseWriter, r *http.Req
 	}
 
 	response := map[string]any{
-		"technical":      comp.TotalTechnicalLoss,
-		"non_technical":  comp.TotalNonTechnicalLoss,
-		"technical_pct":  techPct,
+		"technical":         comp.TotalTechnicalLoss,
+		"non_technical":     comp.TotalNonTechnicalLoss,
+		"technical_pct":     techPct,
 		"non_technical_pct": nonTechPct,
 	}
 
@@ -470,9 +470,9 @@ func (h *DashboardHandler) GetQuarterlyInjectedBilled(w http.ResponseWriter, r *
 	}
 
 	type QuarterlyPoint struct {
-		Quarter      string  `json:"quarter"`
-		InjectedMWh  float64 `json:"injected_mwh"`
-		BilledMWh    float64 `json:"billed_mwh"`
+		Quarter     string  `json:"quarter"`
+		InjectedMWh float64 `json:"injected_mwh"`
+		BilledMWh   float64 `json:"billed_mwh"`
 	}
 
 	points := make([]QuarterlyPoint, len(aggregates))
@@ -588,14 +588,14 @@ func (h *DashboardHandler) GetFinancialTable(w http.ResponseWriter, r *http.Requ
 	transformers, _ := h.transformerRepo.GetByTenant(ctx, tenantID)
 
 	type FinancialRow struct {
-		TransformerID     string  `json:"transformer_id"`
-		Code              string  `json:"code"`
-		LossPct           float64 `json:"loss_pct"`
-		LossKWh           float64 `json:"loss_kwh"`
-		LossCostBRL       float64 `json:"loss_cost_brl"`
-		EnergyInjectedKWh float64 `json:"energy_injected_kwh"`
-		EnergyBilledKWh   float64 `json:"energy_billed_kwh"`
-		RevenueBRL        float64 `json:"revenue_brl"`
+		TransformerID       string  `json:"transformer_id"`
+		Code                string  `json:"code"`
+		LossPct             float64 `json:"loss_pct"`
+		LossKWh             float64 `json:"loss_kwh"`
+		LossCostBRL         float64 `json:"loss_cost_brl"`
+		EnergyInjectedKWh   float64 `json:"energy_injected_kwh"`
+		EnergyBilledKWh     float64 `json:"energy_billed_kwh"`
+		RevenueBRL          float64 `json:"revenue_brl"`
 		PotentialSavingsBRL float64 `json:"potential_savings_brl"`
 	}
 

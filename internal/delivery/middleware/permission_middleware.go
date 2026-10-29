@@ -3,8 +3,8 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/domain"
 )
 
 // RequirePermission middleware verifica se o usuário tem uma permissão específica

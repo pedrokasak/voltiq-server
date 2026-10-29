@@ -66,13 +66,13 @@ func TestBillingUseCase_SendDunningEmail(t *testing.T) {
 	// Create test pending dunning
 	pending := &repository.DunningPending{
 		TenantID:              "test-tenant-id",
-		PaymentGatewayID:     "sub_test123",
-		Stage:                1,
-		TenantEmail:          stringPtr("test@example.com"),
-		TenantName:           stringPtr("Test Tenant"),
-		PaymentCustomerID:    stringPtr("cus_test"),
+		PaymentGatewayID:      "sub_test123",
+		Stage:                 1,
+		TenantEmail:           stringPtr("test@example.com"),
+		TenantName:            stringPtr("Test Tenant"),
+		PaymentCustomerID:     stringPtr("cus_test"),
 		PaymentSubscriptionID: stringPtr("sub_test123"),
-		CreatedAt:            time.Now(),
+		CreatedAt:             time.Now(),
 	}
 
 	// Execute
@@ -104,13 +104,13 @@ func TestBillingUseCase_SendDunningEmail_InvalidEmail(t *testing.T) {
 	// Test with missing email
 	pending := &repository.DunningPending{
 		TenantID:              "test-tenant-id",
-		PaymentGatewayID:     "sub_test123",
-		Stage:                1,
-		TenantEmail:          nil, // Missing email
-		TenantName:           stringPtr("Test Tenant"),
-		PaymentCustomerID:    stringPtr("cus_test"),
+		PaymentGatewayID:      "sub_test123",
+		Stage:                 1,
+		TenantEmail:           nil, // Missing email
+		TenantName:            stringPtr("Test Tenant"),
+		PaymentCustomerID:     stringPtr("cus_test"),
 		PaymentSubscriptionID: stringPtr("sub_test123"),
-		CreatedAt:            time.Now(),
+		CreatedAt:             time.Now(),
 	}
 
 	err := uc.sendDunningEmail(context.Background(), pending, 1)
@@ -129,13 +129,13 @@ func TestBillingUseCase_SendDunningEmail_NoEmailProvider(t *testing.T) {
 
 	pending := &repository.DunningPending{
 		TenantID:              "test-tenant-id",
-		PaymentGatewayID:     "sub_test123",
-		Stage:                1,
-		TenantEmail:          stringPtr("test@example.com"),
-		TenantName:           stringPtr("Test Tenant"),
-		PaymentCustomerID:    stringPtr("cus_test"),
+		PaymentGatewayID:      "sub_test123",
+		Stage:                 1,
+		TenantEmail:           stringPtr("test@example.com"),
+		TenantName:            stringPtr("Test Tenant"),
+		PaymentCustomerID:     stringPtr("cus_test"),
 		PaymentSubscriptionID: stringPtr("sub_test123"),
-		CreatedAt:            time.Now(),
+		CreatedAt:             time.Now(),
 	}
 
 	err := uc.sendDunningEmail(context.Background(), pending, 1)

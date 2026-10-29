@@ -402,7 +402,7 @@ func (h *TransformerHandler) ExistsByCode(w http.ResponseWriter, r *http.Request
 	}
 
 	response := map[string]any{
-		"code":  code,
+		"code":   code,
 		"exists": exists,
 	}
 

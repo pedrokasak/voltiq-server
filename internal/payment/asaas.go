@@ -44,15 +44,15 @@ func NewAsaasProvider(apiKey, webhookKey string, sandbox bool) *AsaasProvider {
 
 func (p *AsaasProvider) CreateCustomer(ctx context.Context, input CreateCustomerInput) (*Customer, error) {
 	body := map[string]any{
-		"name":            input.Name,
-		"email":           input.Email,
-		"cpfCnpj":         input.Document,
-		"phone":           input.Phone,
-		"mobilePhone":     input.Phone,
-		"address":         input.Address,
-		"addressNumber":   input.AddressNumber,
-		"province":        input.Province,
-		"postalCode":      input.PostalCode,
+		"name":              input.Name,
+		"email":             input.Email,
+		"cpfCnpj":           input.Document,
+		"phone":             input.Phone,
+		"mobilePhone":       input.Phone,
+		"address":           input.Address,
+		"addressNumber":     input.AddressNumber,
+		"province":          input.Province,
+		"postalCode":        input.PostalCode,
 		"externalReference": input.ExternalID,
 	}
 
@@ -119,12 +119,12 @@ func (p *AsaasProvider) UpdateCustomer(ctx context.Context, customerID string, i
 
 func (p *AsaasProvider) CreateSubscription(ctx context.Context, input CreateSubscriptionInput) (*Subscription, error) {
 	body := map[string]any{
-		"customer":      input.CustomerID,
-		"billingType":   string(input.BillingType),
-		"cycle":         string(input.Cycle),
-		"value":         input.Value,
-		"description":   input.Description,
-		"nextDueDate":   input.NextDueDate.Format("2006-01-02"),
+		"customer":          input.CustomerID,
+		"billingType":       string(input.BillingType),
+		"cycle":             string(input.Cycle),
+		"value":             input.Value,
+		"description":       input.Description,
+		"nextDueDate":       input.NextDueDate.Format("2006-01-02"),
 		"externalReference": input.ExternalID,
 	}
 
@@ -307,12 +307,12 @@ func (p *AsaasProvider) RefundPayment(ctx context.Context, paymentID string, inp
 // CreatePayment creates a standalone payment (for proration charges)
 func (p *AsaasProvider) CreatePayment(ctx context.Context, input CreatePaymentInput) (*Payment, error) {
 	body := map[string]any{
-		"customer":           input.CustomerID,
-		"value":              input.Value,
-		"billingType":        string(input.BillingType),
-		"description":        input.Description,
-		"dueDate":            input.DueDate.Format("2006-01-02"),
-		"externalReference":  input.ExternalReference,
+		"customer":          input.CustomerID,
+		"value":             input.Value,
+		"billingType":       string(input.BillingType),
+		"description":       input.Description,
+		"dueDate":           input.DueDate.Format("2006-01-02"),
+		"externalReference": input.ExternalReference,
 	}
 
 	resp, err := p.doRequest(ctx, "POST", "/payments", body)
@@ -421,17 +421,17 @@ func (p *AsaasProvider) doRequest(ctx context.Context, method, endpoint string, 
 
 func (p *AsaasProvider) parseCustomer(data json.RawMessage) *Customer {
 	var c struct {
-		ID               string `json:"id"`
-		Name             string `json:"name"`
-		Email            string `json:"email"`
-		CPFCNPJ          string `json:"cpfCnpj"`
-		Phone            string `json:"phone"`
-		Address          string `json:"address"`
-		AddressNumber    string `json:"addressNumber"`
-		Province         string `json:"province"`
-		PostalCode       string `json:"postalCode"`
+		ID                string `json:"id"`
+		Name              string `json:"name"`
+		Email             string `json:"email"`
+		CPFCNPJ           string `json:"cpfCnpj"`
+		Phone             string `json:"phone"`
+		Address           string `json:"address"`
+		AddressNumber     string `json:"addressNumber"`
+		Province          string `json:"province"`
+		PostalCode        string `json:"postalCode"`
 		ExternalReference string `json:"externalReference"`
-		DateCreated      string `json:"dateCreated"`
+		DateCreated       string `json:"dateCreated"`
 	}
 	json.Unmarshal(data, &c)
 
@@ -454,18 +454,18 @@ func (p *AsaasProvider) parseCustomer(data json.RawMessage) *Customer {
 
 func (p *AsaasProvider) parseSubscription(data json.RawMessage) *Subscription {
 	var s struct {
-		ID              string  `json:"id"`
-		Customer        string  `json:"customer"`
-		Status          string  `json:"status"`
-		BillingType     string  `json:"billingType"`
-		Cycle           string  `json:"cycle"`
-		Value           float64 `json:"value"`
-		Description     string  `json:"description"`
-		NextDueDate     string  `json:"nextDueDate"`
-		ExternalReference string `json:"externalReference"`
-		DateCreated     string  `json:"dateCreated"`
-		DateUpdated     string  `json:"dateUpdated"`
-		DeletedAt       *string `json:"deletedAt"`
+		ID                string  `json:"id"`
+		Customer          string  `json:"customer"`
+		Status            string  `json:"status"`
+		BillingType       string  `json:"billingType"`
+		Cycle             string  `json:"cycle"`
+		Value             float64 `json:"value"`
+		Description       string  `json:"description"`
+		NextDueDate       string  `json:"nextDueDate"`
+		ExternalReference string  `json:"externalReference"`
+		DateCreated       string  `json:"dateCreated"`
+		DateUpdated       string  `json:"dateUpdated"`
+		DeletedAt         *string `json:"deletedAt"`
 	}
 	json.Unmarshal(data, &s)
 
@@ -480,37 +480,37 @@ func (p *AsaasProvider) parseSubscription(data json.RawMessage) *Subscription {
 	}
 
 	return &Subscription{
-		ID:              s.ID,
-		CustomerID:      s.Customer,
-		ExternalID:      s.ExternalReference,
-		Status:          SubscriptionStatus(s.Status),
-		BillingType:     BillingType(s.BillingType),
-		Cycle:           BillingCycle(s.Cycle),
-		Value:           s.Value,
-		Description:     s.Description,
-		NextDueDate:     nextDueDate,
-		CreatedAt:       createdAt,
-		UpdatedAt:       updatedAt,
-		CancelledAt:     cancelledAt,
+		ID:          s.ID,
+		CustomerID:  s.Customer,
+		ExternalID:  s.ExternalReference,
+		Status:      SubscriptionStatus(s.Status),
+		BillingType: BillingType(s.BillingType),
+		Cycle:       BillingCycle(s.Cycle),
+		Value:       s.Value,
+		Description: s.Description,
+		NextDueDate: nextDueDate,
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
+		CancelledAt: cancelledAt,
 	}
 }
 
 func (p *AsaasProvider) parsePayment(data json.RawMessage) *Payment {
 	var pm struct {
-		ID             string   `json:"id"`
-		Subscription   *string  `json:"subscription"`
-		Customer       string   `json:"customer"`
-		Value          float64  `json:"value"`
-		Status         string   `json:"status"`
-		BillingType    string   `json:"billingType"`
-		DueDate        string   `json:"dueDate"`
-		PaidAt         *string  `json:"paidAt"`
-		InvoiceURL     string   `json:"invoiceUrl"`
-		BankSlipURL    string   `json:"bankSlipUrl"`
-		PIXQRCode      string   `json:"pixQrCode"`
-		PIXCode        string   `json:"pixCode"`
-		DateCreated    string   `json:"dateCreated"`
-		DateUpdated    string   `json:"dateUpdated"`
+		ID           string  `json:"id"`
+		Subscription *string `json:"subscription"`
+		Customer     string  `json:"customer"`
+		Value        float64 `json:"value"`
+		Status       string  `json:"status"`
+		BillingType  string  `json:"billingType"`
+		DueDate      string  `json:"dueDate"`
+		PaidAt       *string `json:"paidAt"`
+		InvoiceURL   string  `json:"invoiceUrl"`
+		BankSlipURL  string  `json:"bankSlipUrl"`
+		PIXQRCode    string  `json:"pixQrCode"`
+		PIXCode      string  `json:"pixCode"`
+		DateCreated  string  `json:"dateCreated"`
+		DateUpdated  string  `json:"dateUpdated"`
 	}
 	json.Unmarshal(data, &pm)
 
@@ -568,9 +568,9 @@ func (p *AsaasProvider) parseRefund(data json.RawMessage) *Refund {
 // --- Errors ---
 
 var (
-	ErrCustomerNotFound      = errors.New("customer not found")
-	ErrSubscriptionNotFound  = errors.New("subscription not found")
-	ErrPaymentNotFound       = errors.New("payment not found")
+	ErrCustomerNotFound        = errors.New("customer not found")
+	ErrSubscriptionNotFound    = errors.New("subscription not found")
+	ErrPaymentNotFound         = errors.New("payment not found")
 	ErrInvalidWebhookSignature = errors.New("invalid webhook signature")
 )
 

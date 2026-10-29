@@ -61,8 +61,8 @@ func (h *BillingHandler) ActivatePlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type ActivateRequest struct {
-		Plan           string `json:"plan"`             // starter, pro, enterprise
-		BillingType    string `json:"billing_type"`     // BOLETO, CREDIT_CARD, PIX
+		Plan            string `json:"plan"`         // starter, pro, enterprise
+		BillingType     string `json:"billing_type"` // BOLETO, CREDIT_CARD, PIX
 		CreditCardToken string `json:"credit_card_token,omitempty"`
 	}
 
@@ -243,7 +243,7 @@ func (h *BillingHandler) GetPaymentHistory(w http.ResponseWriter, r *http.Reques
 
 // WebhookHandler handles payment provider webhooks
 type WebhookHandler struct {
-	billingUseCase *usecase.BillingUseCase
+	billingUseCase  *usecase.BillingUseCase
 	paymentProvider payment.PaymentProvider
 }
 

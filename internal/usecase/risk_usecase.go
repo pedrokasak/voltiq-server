@@ -11,9 +11,9 @@ import (
 
 // RiskUseCase handles risk score and anomaly detection business logic
 type RiskUseCase struct {
-	balanceRepo      *repository.BalanceRepository
-	transformerRepo  *repository.TransformerRepository
-	ucRepo           *repository.ConsumingUnitRepository
+	balanceRepo     *repository.BalanceRepository
+	transformerRepo *repository.TransformerRepository
+	ucRepo          *repository.ConsumingUnitRepository
 }
 
 // RiskScoreOutput contains the calculated risk score
@@ -33,9 +33,9 @@ func NewRiskUseCase(
 	ucRepo *repository.ConsumingUnitRepository,
 ) *RiskUseCase {
 	return &RiskUseCase{
-		balanceRepo:      balanceRepo,
-		transformerRepo:  transformerRepo,
-		ucRepo:           ucRepo,
+		balanceRepo:     balanceRepo,
+		transformerRepo: transformerRepo,
+		ucRepo:          ucRepo,
 	}
 }
 

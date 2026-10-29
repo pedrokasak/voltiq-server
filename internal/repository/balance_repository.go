@@ -198,14 +198,14 @@ func (r *BalanceRepository) GetByTenant(
 
 // MonthlyAggregate represents monthly aggregated balance data
 type MonthlyAggregate struct {
-	Month                  time.Time
-	TotalEnergyInjected    float64
-	TotalConsumption       float64
-	TotalLoss              float64
-	TotalTechnicalLoss     float64
-	TotalNonTechnicalLoss  float64
-	AvgLossPct             float64
-	BalanceCount           int
+	Month                 time.Time
+	TotalEnergyInjected   float64
+	TotalConsumption      float64
+	TotalLoss             float64
+	TotalTechnicalLoss    float64
+	TotalNonTechnicalLoss float64
+	AvgLossPct            float64
+	BalanceCount          int
 }
 
 // GetMonthlyAggregatesByTenant returns monthly aggregates for the last N months
@@ -325,9 +325,9 @@ func (r *BalanceRepository) GetTransformerStatusCounts(
 
 // QuarterlyAggregate represents quarterly aggregated data
 type QuarterlyAggregate struct {
-	Quarter               time.Time
-	TotalEnergyInjected   float64
-	TotalConsumption      float64
+	Quarter             time.Time
+	TotalEnergyInjected float64
+	TotalConsumption    float64
 }
 
 // GetQuarterlyAggregatesByTenant returns quarterly aggregates for the last N quarters
@@ -426,13 +426,13 @@ func (r *BalanceRepository) GetAccumulatedLossCost(
 
 // TopTransformerLoss represents a transformer with its loss metrics
 type TopTransformerLoss struct {
-	TransformerID         domain.UUID
-	Code                  string
-	LossPct               float64
-	LossKWh               float64
-	EnergyInjectedKWh     float64
-	TechnicalLossKWh      float64
-	NonTechnicalLossKWh   float64
+	TransformerID       domain.UUID
+	Code                string
+	LossPct             float64
+	LossKWh             float64
+	EnergyInjectedKWh   float64
+	TechnicalLossKWh    float64
+	NonTechnicalLossKWh float64
 }
 
 // GetTopTransformersByLoss returns top N transformers by loss percentage

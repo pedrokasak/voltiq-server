@@ -8,41 +8,41 @@ import (
 
 // RiskScore represents the calculated risk score for a transformer
 type RiskScore struct {
-	TransformerID   domain.UUID `json:"transformer_id"`
-	Score           float64     `json:"score"`            // 0-100
-	Level           string      `json:"level"`            // "LOW", "MEDIUM", "HIGH", "CRITICAL"
-	LossPct         float64     `json:"loss_pct"`         // Current loss percentage
-	LossLimitPct    float64     `json:"loss_limit_pct"`   // Regulatory limit
-	OverloadPct     float64     `json:"overload_pct"`     // How much over limit
-	UCCount         int         `json:"uc_count"`         // Number of consumer units
-	TrendDirection  string      `json:"trend_direction"`  // "IMPROVING", "STABLE", "WORSENING"
-	LastCalculated  string      `json:"last_calculated"`  // ISO timestamp
-	Factors         []RiskFactor `json:"factors"`         // Contributing factors
+	TransformerID  domain.UUID  `json:"transformer_id"`
+	Score          float64      `json:"score"`           // 0-100
+	Level          string       `json:"level"`           // "LOW", "MEDIUM", "HIGH", "CRITICAL"
+	LossPct        float64      `json:"loss_pct"`        // Current loss percentage
+	LossLimitPct   float64      `json:"loss_limit_pct"`  // Regulatory limit
+	OverloadPct    float64      `json:"overload_pct"`    // How much over limit
+	UCCount        int          `json:"uc_count"`        // Number of consumer units
+	TrendDirection string       `json:"trend_direction"` // "IMPROVING", "STABLE", "WORSENING"
+	LastCalculated string       `json:"last_calculated"` // ISO timestamp
+	Factors        []RiskFactor `json:"factors"`         // Contributing factors
 }
 
 // RiskFactor represents a contributing factor to the risk score
 type RiskFactor struct {
-	Name        string  `json:"name"`
-	Weight      float64 `json:"weight"`       // 0-1
-	Value       float64 `json:"value"`        // Normalized 0-1
+	Name         string  `json:"name"`
+	Weight       float64 `json:"weight"`       // 0-1
+	Value        float64 `json:"value"`        // Normalized 0-1
 	Contribution float64 `json:"contribution"` // Weight * Value
-	Description string  `json:"description"`
+	Description  string  `json:"description"`
 }
 
 // Anomaly represents a detected anomaly in transformer data
 type Anomaly struct {
-	ID              string            `json:"id"`
-	TransformerID   domain.UUID       `json:"transformer_id"`
-	Type            string            `json:"type"`              // "LOSS_SPIKE", "CONSUMPTION_DROP", "BALANCE_INCONSISTENCY", "READING_GAP"
-	Severity        string            `json:"severity"`          // "LOW", "MEDIUM", "HIGH", "CRITICAL"
-	DetectedAt      string            `json:"detected_at"`       // ISO timestamp
-	PeriodStart     string            `json:"period_start"`      // ISO timestamp
-	PeriodEnd       string            `json:"period_end"`        // ISO timestamp
-	Description     string            `json:"description"`
-	MetricValue     float64           `json:"metric_value"`
-	ExpectedValue   float64           `json:"expected_value"`
-	DeviationPct    float64           `json:"deviation_pct"`
-	Details         map[string]any    `json:"details"`
+	ID            string         `json:"id"`
+	TransformerID domain.UUID    `json:"transformer_id"`
+	Type          string         `json:"type"`         // "LOSS_SPIKE", "CONSUMPTION_DROP", "BALANCE_INCONSISTENCY", "READING_GAP"
+	Severity      string         `json:"severity"`     // "LOW", "MEDIUM", "HIGH", "CRITICAL"
+	DetectedAt    string         `json:"detected_at"`  // ISO timestamp
+	PeriodStart   string         `json:"period_start"` // ISO timestamp
+	PeriodEnd     string         `json:"period_end"`   // ISO timestamp
+	Description   string         `json:"description"`
+	MetricValue   float64        `json:"metric_value"`
+	ExpectedValue float64        `json:"expected_value"`
+	DeviationPct  float64        `json:"deviation_pct"`
+	Details       map[string]any `json:"details"`
 }
 
 // CalculateRiskScore calculates a risk score for a transformer based on multiple factors
@@ -286,9 +286,9 @@ func DetectAnomalies(
 			ExpectedValue: latest.EnergyInjectedKWh,
 			DeviationPct:  excessPct,
 			Details: map[string]any{
-				"energy_injected_kwh":    latest.EnergyInjectedKWh,
-				"total_consumption_kwh":  latest.TotalConsumptionKWh,
-				"excess_kwh":             latest.TotalConsumptionKWh - latest.EnergyInjectedKWh,
+				"energy_injected_kwh":   latest.EnergyInjectedKWh,
+				"total_consumption_kwh": latest.TotalConsumptionKWh,
+				"excess_kwh":            latest.TotalConsumptionKWh - latest.EnergyInjectedKWh,
 			},
 		})
 	}

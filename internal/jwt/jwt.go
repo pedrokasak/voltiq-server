@@ -21,16 +21,16 @@ type Claims struct {
 }
 
 type Service struct {
-	secretKey          []byte
-	expiration         time.Duration
-	refreshExpiration  time.Duration
+	secretKey         []byte
+	expiration        time.Duration
+	refreshExpiration time.Duration
 }
 
 func NewService(secretKey string) *Service {
 	return &Service{
-		secretKey:          []byte(secretKey),
-		expiration:         24 * time.Hour,
-		refreshExpiration:  7 * 24 * time.Hour,
+		secretKey:         []byte(secretKey),
+		expiration:        24 * time.Hour,
+		refreshExpiration: 7 * 24 * time.Hour,
 	}
 }
 

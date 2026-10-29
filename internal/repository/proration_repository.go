@@ -175,19 +175,19 @@ func (r *ProrationRepository) GetTenantCredits(ctx context.Context, tenantID str
 
 // ProrationCredit represents a proration credit/debit record
 type ProrationCredit struct {
-	ID                        string
-	TenantID                  string
-	SubscriptionGatewayID     string
-	AmountCents               int64    // positivo = credito, negativo = debito
-	Reason                    string   // 'upgrade' | 'downgrade'
-	PeriodStart               time.Time
-	PeriodEnd                 time.Time
-	DaysCalculated            int
-	DailyRateOldCents         int64
-	DailyRateNewCents         int64
-	AppliedAt                 *time.Time
-	AppliedPaymentGatewayID   *string
-	CreatedAt                 time.Time
+	ID                      string
+	TenantID                string
+	SubscriptionGatewayID   string
+	AmountCents             int64  // positivo = credito, negativo = debito
+	Reason                  string // 'upgrade' | 'downgrade'
+	PeriodStart             time.Time
+	PeriodEnd               time.Time
+	DaysCalculated          int
+	DailyRateOldCents       int64
+	DailyRateNewCents       int64
+	AppliedAt               *time.Time
+	AppliedPaymentGatewayID *string
+	CreatedAt               time.Time
 }
 
 // CalculateProration calculates the proration amount for a plan change

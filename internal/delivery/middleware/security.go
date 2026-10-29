@@ -15,14 +15,14 @@ type SecurityHeaders map[string]string
 // DefaultSecurityHeaders returns default security headers
 func DefaultSecurityHeaders() SecurityHeaders {
 	return SecurityHeaders{
-		"X-Content-Type-Options":  "nosniff",
-		"X-Frame-Options":         "DENY",
-		"X-XSS-Protection":        "1; mode=block",
+		"X-Content-Type-Options":            "nosniff",
+		"X-Frame-Options":                   "DENY",
+		"X-XSS-Protection":                  "1; mode=block",
 		"X-Permitted-Cross-Domain-Policies": "none",
-		"Referrer-Policy":         "strict-origin-when-cross-origin",
-		"Cache-Control":           "no-store, no-cache, must-revalidate, proxy-revalidate",
-		"Pragma":                  "no-cache",
-		"Expires":                 "0",
+		"Referrer-Policy":                   "strict-origin-when-cross-origin",
+		"Cache-Control":                     "no-store, no-cache, must-revalidate, proxy-revalidate",
+		"Pragma":                            "no-cache",
+		"Expires":                           "0",
 	}
 }
 
@@ -34,13 +34,13 @@ type SecurityMiddleware struct {
 // NewSecurityMiddleware creates a new SecurityMiddleware
 func NewSecurityMiddleware(customHeaders ...SecurityHeaders) *SecurityMiddleware {
 	headers := DefaultSecurityHeaders()
-	
+
 	for _, custom := range customHeaders {
 		for k, v := range custom {
 			headers[k] = v
 		}
 	}
-	
+
 	return &SecurityMiddleware{
 		headers: headers,
 	}
@@ -53,11 +53,11 @@ func (m *SecurityMiddleware) Handler(next http.Handler) http.Handler {
 		for header, value := range m.headers {
 			w.Header().Set(header, value)
 		}
-		
+
 		// Set Content-Security-Policy
 		csp := m.buildCSP(r)
 		w.Header().Set("Content-Security-Policy", csp)
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -68,7 +68,7 @@ func (m *SecurityMiddleware) buildCSP(r *http.Request) string {
 	if host == "" {
 		host = "localhost"
 	}
-	
+
 	return fmt.Sprintf(
 		"default-src 'self'; "+
 			"script-src 'self'; "+
@@ -102,12 +102,12 @@ func (m *XSSProtectionMiddleware) Handler(next http.Handler) http.Handler {
 			}
 		}
 		r.URL.RawQuery = query.Encode()
-		
+
 		// Sanitize headers that might contain user input
 		if r.Header.Get("X-Custom-Input") != "" {
 			r.Header.Set("X-Custom-Input", SanitizeInput(r.Header.Get("X-Custom-Input")))
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -177,7 +177,7 @@ func NewCORSMiddleware(config CORSConfig) *CORSMiddleware {
 	if config.AllowedMethods == nil {
 		config.AllowedMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	}
-	
+
 	if config.AllowedHeaders == nil {
 		config.AllowedHeaders = []string{
 			"Accept",
@@ -187,7 +187,7 @@ func NewCORSMiddleware(config CORSConfig) *CORSMiddleware {
 			"X-Request-ID",
 		}
 	}
-	
+
 	if config.ExposedHeaders == nil {
 		config.ExposedHeaders = []string{
 			"X-Request-ID",
@@ -195,11 +195,11 @@ func NewCORSMiddleware(config CORSConfig) *CORSMiddleware {
 			"X-RateLimit-Remaining",
 		}
 	}
-	
+
 	if config.MaxAge == 0 {
 		config.MaxAge = 300
 	}
-	
+
 	return &CORSMiddleware{
 		config: config,
 	}
@@ -209,7 +209,7 @@ func NewCORSMiddleware(config CORSConfig) *CORSMiddleware {
 func (m *CORSMiddleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		
+
 		// Check if origin is allowed
 		allowed := false
 		for _, allowedOrigin := range m.config.AllowedOrigins {
@@ -218,32 +218,32 @@ func (m *CORSMiddleware) Handler(next http.Handler) http.Handler {
 				break
 			}
 		}
-		
+
 		if !allowed && origin != "" {
 			http.Error(w, "Origin not allowed", http.StatusForbidden)
 			return
 		}
-		
+
 		// Set CORS headers
 		if origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		}
-		
+
 		w.Header().Set("Access-Control-Allow-Methods", strings.Join(m.config.AllowedMethods, ", "))
 		w.Header().Set("Access-Control-Allow-Headers", strings.Join(m.config.AllowedHeaders, ", "))
 		w.Header().Set("Access-Control-Expose-Headers", strings.Join(m.config.ExposedHeaders, ", "))
 		w.Header().Set("Access-Control-Max-Age", fmt.Sprintf("%d", m.config.MaxAge))
-		
+
 		if m.config.AllowCredentials {
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
-		
+
 		// Handle preflight
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }

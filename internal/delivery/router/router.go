@@ -16,27 +16,27 @@ import (
 
 // Config holds router configuration
 type Config struct {
-	AuthHandler          *handler.AuthHandler
-	InviteHandler        *handler.InviteHandler
-	TransformerHandler   *handler.TransformerHandler
-	ConsumingUnitHandler *handler.ConsumingUnitHandler
-	BalanceHandler       *handler.BalanceHandler
-	ImportHandler        *handler.ImportHandler
-	AlertHandler         *handler.AlertHandler
-	RiskHandler          *handler.RiskHandler
-	DashboardHandler     *handler.DashboardHandler
-	ExportHandler        *handler.ExportHandler
-	SuperAdminHandler    *handler.SuperAdminHandler
-	FinancialHandler     *handler.FinancialHandler
-	BillingHandler       *handler.BillingHandler
-	WebhookHandler       *handler.WebhookHandler
-	HealthHandler        *handler.HealthHandler
-	MetricsCollector     *metrics.MetricsCollector
-	AuthMiddleware       *deliverymiddleware.AuthMiddleware
-	RateLimiter          *deliverymiddleware.RateLimiter
-	SecurityMiddleware   *deliverymiddleware.SecurityMiddleware
+	AuthHandler            *handler.AuthHandler
+	InviteHandler          *handler.InviteHandler
+	TransformerHandler     *handler.TransformerHandler
+	ConsumingUnitHandler   *handler.ConsumingUnitHandler
+	BalanceHandler         *handler.BalanceHandler
+	ImportHandler          *handler.ImportHandler
+	AlertHandler           *handler.AlertHandler
+	RiskHandler            *handler.RiskHandler
+	DashboardHandler       *handler.DashboardHandler
+	ExportHandler          *handler.ExportHandler
+	SuperAdminHandler      *handler.SuperAdminHandler
+	FinancialHandler       *handler.FinancialHandler
+	BillingHandler         *handler.BillingHandler
+	WebhookHandler         *handler.WebhookHandler
+	HealthHandler          *handler.HealthHandler
+	MetricsCollector       *metrics.MetricsCollector
+	AuthMiddleware         *deliverymiddleware.AuthMiddleware
+	RateLimiter            *deliverymiddleware.RateLimiter
+	SecurityMiddleware     *deliverymiddleware.SecurityMiddleware
 	TenantStatusMiddleware *deliverymiddleware.TenantStatusMiddleware
-	CORSOrigins          []string
+	CORSOrigins            []string
 }
 
 // Setup creates and configures the Chi router

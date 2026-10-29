@@ -14,16 +14,16 @@ import (
 
 // BillingUseCase handles billing operations
 type BillingUseCase struct {
-	tenantRepo       *repository.TenantRepository
-	userRepo         *repository.UserRepository
-	paymentProvider  payment.PaymentProvider
-	webhookRepo      *repository.WebhookEventRepository
-	dunningRepo      *repository.DunningRepository
-	metricsRepo      *repository.MetricsRepository
-	prorationRepo    *repository.ProrationRepository
-	emailProvider    email.EmailProvider
-	emailTemplates   *email.TemplateLoader
-	planConfigs      map[domain.TenantPlan]payment.PlanConfig
+	tenantRepo      *repository.TenantRepository
+	userRepo        *repository.UserRepository
+	paymentProvider payment.PaymentProvider
+	webhookRepo     *repository.WebhookEventRepository
+	dunningRepo     *repository.DunningRepository
+	metricsRepo     *repository.MetricsRepository
+	prorationRepo   *repository.ProrationRepository
+	emailProvider   email.EmailProvider
+	emailTemplates  *email.TemplateLoader
+	planConfigs     map[domain.TenantPlan]payment.PlanConfig
 }
 
 // NewBillingUseCase creates a new BillingUseCase
@@ -135,15 +135,15 @@ func (uc *BillingUseCase) ActivatePlan(ctx context.Context, tenantID domain.UUID
 	if customer == nil {
 		// Create new customer
 		customerInput := payment.CreateCustomerInput{
-			ExternalID:     string(tenantID),
-			Name:           owner.Name,
-			Email:          owner.Email,
-			Document:       tenant.Document,
-			Phone:          "", // User doesn't have phone field yet
-			Address:        tenant.Address,
-			AddressNumber:  tenant.AddressNumber,
-			Province:       tenant.Province,
-			PostalCode:     tenant.PostalCode,
+			ExternalID:    string(tenantID),
+			Name:          owner.Name,
+			Email:         owner.Email,
+			Document:      tenant.Document,
+			Phone:         "", // User doesn't have phone field yet
+			Address:       tenant.Address,
+			AddressNumber: tenant.AddressNumber,
+			Province:      tenant.Province,
+			PostalCode:    tenant.PostalCode,
 			Metadata: map[string]string{
 				"tenant_id": string(tenantID),
 			},
@@ -627,7 +627,7 @@ func (uc *BillingUseCase) sendDunningEmail(ctx context.Context, pending *reposit
 		PlanName:     planConfig.Description,
 		Amount:       fmt.Sprintf("R$ %.2f", planConfig.Value),
 		DueDate:      time.Now().AddDate(0, 0, -int(stage)*7).Format("02/01/2006"), // Approximate
-		DaysOverdue:  stage * 7, // Approximate
+		DaysOverdue:  stage * 7,                                                    // Approximate
 		BillingURL:   "https://app.voltiq.com.br/billing",
 		SupportEmail: "suporte@voltiq.com.br",
 		CompanyName:  "Voltiq Software",

@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/voltiq/server/internal/delivery/request"
 	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/repository"
-	"github.com/voltiq/server/internal/delivery/request"
 )
 
 // TenantStatusMiddleware blocks access for tenants with suspended/pending payment status

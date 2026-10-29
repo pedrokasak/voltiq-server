@@ -253,11 +253,11 @@ func (h *SuperAdminHandler) UpdateTenantStatus(w http.ResponseWriter, r *http.Re
 
 	// Validate status
 	validStatuses := map[string]bool{
-		"TRIAL":            true,
-		"ACTIVE":           true,
-		"SUSPENDED":        true,
-		"PENDING_PAYMENT":  true,
-		"CANCELLED":        true,
+		"TRIAL":           true,
+		"ACTIVE":          true,
+		"SUSPENDED":       true,
+		"PENDING_PAYMENT": true,
+		"CANCELLED":       true,
 	}
 	if !validStatuses[req.Status] {
 		request.WriteJSON(w, http.StatusBadRequest,
