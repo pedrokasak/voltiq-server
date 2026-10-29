@@ -34,6 +34,7 @@ func newTestApp(t *testing.T) *testApp {
 	}
 	a, err := app.Build(context.Background(), app.Options{
 		JWTSecret: "integration-test-secret-0123456789abcdef", DisableRateLimit: true,
+		CORSOrigins: []string{"http://localhost:5173"},
 	})
 	if err != nil {
 		// Com DATABASE_URL definido a falha e real (no CI nao pode ser pulada)
@@ -153,6 +154,27 @@ func TestHealth(t *testing.T) {
 	resp, err := http.Get(ta.Server.URL + "/health")
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("health: %v %v", err, resp)
+	}
+}
+
+// TestCORSPreflight garante que o navegador do app web passa no preflight
+// (o cliente envia X-Requested-With e usa PATCH).
+func TestCORSPreflight(t *testing.T) {
+	ta := newTestApp(t)
+	req, _ := http.NewRequest(http.MethodOptions, ta.Server.URL+"/api/v1/billing/plan", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Access-Control-Request-Method", "PATCH")
+	req.Header.Set("Access-Control-Request-Headers", "authorization,content-type,x-requested-with")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Fatalf("preflight recusado: Allow-Origin=%q status=%d", got, resp.StatusCode)
+	}
+	if !strings.Contains(strings.ToLower(resp.Header.Get("Access-Control-Allow-Headers")), "x-requested-with") {
+		t.Errorf("X-Requested-With não permitido: %q", resp.Header.Get("Access-Control-Allow-Headers"))
 	}
 }
 

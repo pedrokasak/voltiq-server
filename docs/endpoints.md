@@ -33,10 +33,10 @@ as permissões do usuário, limites do plano, uso e progresso do onboarding.
 | Categoria | Limite |
 |---|---|
 | login, signup, aceite de convite | 5/min por IP+UA |
-| refresh | 10/min |
+| refresh | 30/min |
 | importações | 20/min |
 | cálculo de balanço | 30/min |
-| demais | 60/min |
+| demais | 300/min (por IP+navegador; o SDD previa 60/min, insuficiente para o app e para escritórios atrás de um IP) |
 
 ## Rotas
 

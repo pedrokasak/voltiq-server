@@ -73,7 +73,7 @@ func Setup(cfg Config) *chi.Mux {
 		r.Use(cors.Handler(cors.Options{
 			AllowedOrigins:   cfg.CORSOrigins,
 			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Request-ID"},
+			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Request-ID", "X-Requested-With"},
 			ExposedHeaders:   []string{"X-Request-ID", "X-Total-Count", "Content-Disposition", "Retry-After"},
 			AllowCredentials: true,
 			MaxAge:           300,

@@ -112,7 +112,7 @@ func writeUseCaseError(w http.ResponseWriter, err error, fallbackCode string) {
 		request.WriteJSON(w, http.StatusConflict, request.Fail("CONFLICT", conflictMessage(err), nil))
 	case errors.Is(err, usecase.ErrInsufficientData):
 		request.WriteJSON(w, http.StatusUnprocessableEntity, request.Fail("INSUFFICIENT_DATA",
-			"não há leituras do transformador no período informado", nil))
+			"faltam leituras no período: é preciso a energia do transformador e o consumo das UCs", nil))
 	case errors.Is(err, usecase.ErrInvalidPeriod):
 		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "período inválido: a data final deve ser posterior à inicial", nil))
 	case errors.Is(err, usecase.ErrForbidden):

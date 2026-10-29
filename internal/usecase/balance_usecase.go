@@ -129,6 +129,15 @@ func (uc *BalanceUseCase) CalculateBalance(ctx context.Context, input CalculateB
 	if input.ManualConsumptionKWh != nil {
 		consumption = *input.ManualConsumptionKWh
 	} else {
+		// Sem leitura de UC no periodo o balanco daria 100% de perda e
+		// alertas falsos (ex.: leituras do trafo importadas antes das UCs).
+		n, err := uc.ucReadingRepo.CountByTransformerAndPeriod(ctx, transformer.ID, start, end)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count UC readings: %w", err)
+		}
+		if n == 0 {
+			return nil, ErrInsufficientData
+		}
 		consumption, err = uc.ucReadingRepo.GetTotalByTransformerAndPeriod(ctx, transformer.ID, start, end)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sum UC readings: %w", err)

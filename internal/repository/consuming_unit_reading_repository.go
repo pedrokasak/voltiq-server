@@ -142,6 +142,15 @@ func (r *UCReadingRepository) GetTotalByTransformerAndPeriod(
 	return total, nil
 }
 
+// CountByTransformerAndPeriod counts the UC readings of a transformer in a period.
+func (r *UCReadingRepository) CountByTransformerAndPeriod(ctx context.Context, transformerID domain.UUID, start, end time.Time) (int, error) {
+	q, args := scoped(ctx, `SELECT COUNT(*) FROM consuming_unit_readings
+		WHERE transformer_id = $1 AND reading_at >= $2 AND reading_at <= $3 /*tenant*/`, transformerID, start, end)
+	var n int
+	err := r.db.Pool.QueryRow(ctx, q, args...).Scan(&n)
+	return n, err
+}
+
 // GetByUCAndPeriod retrieves readings for a UC in a period
 func (r *UCReadingRepository) GetByUCAndPeriod(
 	ctx context.Context,

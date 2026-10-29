@@ -163,7 +163,11 @@ func GetFingerprint(r *http.Request) string {
 }
 
 // RateLimits groups the per-category limiters (SDD seção de segurança):
-// login 5/min, refresh 10/min, imports 20/min, balanco 30/min, demais 60/min.
+// login 5/min, refresh 30/min (cada recarga da pagina restaura a sessao),
+// imports 20/min, balanco 30/min, demais 300/min. O limite geral roda antes
+// da autenticacao (chave IP+UA): uma cooperativa atras de um unico IP divide
+// o mesmo balde, e cada tela do app dispara de 5 a 10 consultas, por isso
+// 300/min em vez dos 60/min do SDD.
 type RateLimits struct {
 	Login   *RateLimiter
 	Refresh *RateLimiter
@@ -176,10 +180,10 @@ type RateLimits struct {
 func NewRateLimits() *RateLimits {
 	return &RateLimits{
 		Login:   NewNamedRateLimiter("login", 5, 3),
-		Refresh: NewNamedRateLimiter("refresh", 10, 5),
+		Refresh: NewNamedRateLimiter("refresh", 30, 10),
 		Import:  NewNamedRateLimiter("import", 20, 10),
 		Balance: NewNamedRateLimiter("balance", 30, 15),
-		Default: NewNamedRateLimiter("default", 60, 30),
+		Default: NewNamedRateLimiter("default", 300, 120),
 	}
 }
 

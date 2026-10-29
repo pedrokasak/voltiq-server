@@ -20,7 +20,7 @@ internal/
   jobs/                  agendador em processo (trial, cobrança, balanço diário...)
   repository/            acesso ao banco (filtro por tenant + variáveis de RLS)
   usecase/               regras de negócio
-migrations/              SQL numerado (001-011)
+migrations/              SQL numerado (001-012)
 scripts/migrate.sh       aplica as migrações em ordem
 tests/                   integração (exige banco) e segurança
 docs/endpoints.md        catálogo de rotas, permissões e jobs
