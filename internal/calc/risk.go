@@ -1,6 +1,7 @@
 package calc
 
 import (
+	"crypto/rand"
 	"math"
 
 	"github.com/voltiq/server/internal/domain"
@@ -335,11 +336,8 @@ func generateAnomalyID() string {
 	return "anom_" + randomString(12)
 }
 
+// randomString gera n caracteres aleatorios; a versao anterior derivava cada
+// caractere apenas da posicao, e todas as anomalias recebiam o mesmo ID.
 func randomString(n int) string {
-	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letters[int(math.Mod(float64(i)*123457, float64(len(letters))))]
-	}
-	return string(b)
+	return rand.Text()[:n]
 }

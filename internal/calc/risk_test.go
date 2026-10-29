@@ -149,3 +149,17 @@ func TestEnergyHelpers(t *testing.T) {
 		t.Errorf("resultado inesperado: %+v", res)
 	}
 }
+
+func TestGenerateAnomalyIDUnique(t *testing.T) {
+	seen := make(map[string]bool)
+	for range 1000 {
+		id := generateAnomalyID()
+		if len(id) != len("anom_")+12 {
+			t.Fatalf("unexpected id length: %q", id)
+		}
+		if seen[id] {
+			t.Fatalf("duplicate anomaly id %q", id)
+		}
+		seen[id] = true
+	}
+}
