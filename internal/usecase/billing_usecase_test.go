@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/voltiq/server/internal/email"
 	"github.com/voltiq/server/internal/payment"
 	"github.com/voltiq/server/internal/repository"
@@ -76,7 +75,7 @@ func TestBillingUseCase_SendDunningEmail(t *testing.T) {
 	}
 
 	// Execute
-	err := uc.sendDunningEmail(context.Background(), pending, 1)
+	err := uc.sendDunningEmail(ctx, pending, 1)
 
 	// Verify
 	assert.NoError(t, err)
@@ -97,7 +96,7 @@ func TestBillingUseCase_SendDunningEmail_InvalidEmail(t *testing.T) {
 
 	uc := &BillingUseCase{
 		emailProvider:  mockEmailProvider,
-		emailTemplates: email.NewTemplateLoader(),
+		emailTemplates: emailTemplates,
 		planConfigs:    payment.DefaultPlanConfigs(),
 	}
 
@@ -113,17 +112,18 @@ func TestBillingUseCase_SendDunningEmail_InvalidEmail(t *testing.T) {
 		CreatedAt:             time.Now(),
 	}
 
-	err := uc.sendDunningEmail(context.Background(), pending, 1)
+	err := uc.sendDunningEmail(ctx, pending, 1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "tenant email not available")
 }
 
 func TestBillingUseCase_SendDunningEmail_NoEmailProvider(t *testing.T) {
 	ctx := context.Background()
+	templates, _ := email.NewTemplateLoader()
 
 	uc := &BillingUseCase{
 		emailProvider:  nil, // No email provider
-		emailTemplates: email.NewTemplateLoader(),
+		emailTemplates: templates,
 		planConfigs:    payment.DefaultPlanConfigs(),
 	}
 
@@ -138,7 +138,7 @@ func TestBillingUseCase_SendDunningEmail_NoEmailProvider(t *testing.T) {
 		CreatedAt:             time.Now(),
 	}
 
-	err := uc.sendDunningEmail(context.Background(), pending, 1)
+	err := uc.sendDunningEmail(ctx, pending, 1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "email provider or templates not configured")
 }

@@ -42,7 +42,7 @@ func (h *RiskHandler) GetRiskScore(w http.ResponseWriter, r *http.Request) {
 			request.WriteJSON(w, http.StatusNotFound, request.Fail("NOT_FOUND", "no balance data available for this transformer", nil))
 			return
 		}
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("CALCULATION_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "CALCULATION_ERROR")
 		return
 	}
 
@@ -55,7 +55,7 @@ func (h *RiskHandler) GetAllRiskScores(w http.ResponseWriter, r *http.Request) {
 
 	scores, err := h.riskUseCase.GetAllRiskScores(r.Context(), tenantID)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("LIST_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "LIST_ERROR")
 		return
 	}
 
@@ -84,7 +84,7 @@ func (h *RiskHandler) GetTransformerAnomalies(w http.ResponseWriter, r *http.Req
 			request.WriteJSON(w, http.StatusNotFound, request.Fail("NOT_FOUND", "transformer not found", nil))
 			return
 		}
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("CALCULATION_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "CALCULATION_ERROR")
 		return
 	}
 
@@ -105,7 +105,7 @@ func (h *RiskHandler) GetAllTransformersAnomalies(w http.ResponseWriter, r *http
 
 	anomalies, err := h.riskUseCase.GetAllAnomalies(r.Context(), tenantID, monthsBack)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("LIST_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "LIST_ERROR")
 		return
 	}
 

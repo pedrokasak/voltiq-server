@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -22,15 +23,24 @@ func NewUserRepository(db *Database) *UserRepository {
 
 // Create inserts a new user into the database
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
+	return r.create(ctx, r.db.Pool, user)
+}
+
+// CreateTx inserts a new user inside a transaction.
+func (r *UserRepository) CreateTx(ctx context.Context, tx pgx.Tx, user *domain.User) error {
+	return r.create(ctx, tx, user)
+}
+
+func (r *UserRepository) create(ctx context.Context, exec execer, user *domain.User) error {
 	query := `
 		INSERT INTO users (id, tenant_id, email, name, password_hash, role, active, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 
-	_, err := r.db.Pool.Exec(ctx, query,
+	_, err := exec.Exec(ctx, query,
 		user.ID,
 		user.TenantID,
-		user.Email,
+		strings.ToLower(strings.TrimSpace(user.Email)),
 		user.Name,
 		user.PasswordHash,
 		user.Role,
@@ -90,7 +100,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 	query := `
 		SELECT id, tenant_id, email, name, password_hash, role, active, last_login, created_at, updated_at, deleted_at
 		FROM users
-		WHERE email = $1 AND deleted_at IS NULL
+		WHERE lower(email) = lower($1) AND deleted_at IS NULL
 	`
 
 	user := &domain.User{}
@@ -183,7 +193,7 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	query := `
 		UPDATE users
 		SET email = $1, name = $2, password_hash = $3, role = $4, active = $5, last_login = $6, updated_at = $7
-		WHERE id = $8
+		WHERE id = $8 /*tenant*/
 	`
 
 	var lastLogin *time.Time
@@ -191,7 +201,7 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 		lastLogin = user.LastLogin
 	}
 
-	_, err := r.db.Pool.Exec(ctx, query,
+	q, args := scoped(ctx, query,
 		user.Email,
 		user.Name,
 		user.PasswordHash,
@@ -201,6 +211,7 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 		time.Now(),
 		user.ID,
 	)
+	_, err := r.db.Pool.Exec(ctx, q, args...)
 
 	return err
 }
@@ -209,12 +220,20 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 func (r *UserRepository) Delete(ctx context.Context, id domain.UUID) error {
 	query := `
 		UPDATE users
-		SET deleted_at = $1, updated_at = $2
-		WHERE id = $3
+		SET deleted_at = $1, updated_at = $2, active = false
+		WHERE id = $3 AND deleted_at IS NULL /*tenant*/
 	`
 
-	_, err := r.db.Pool.Exec(ctx, query, time.Now(), time.Now(), id)
-	return err
+	now := time.Now()
+	q, args := scoped(ctx, query, now, now, id)
+	tag, err := r.db.Pool.Exec(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // GetByTenantAndRole retrieves a user by tenant and role

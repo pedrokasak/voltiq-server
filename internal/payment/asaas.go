@@ -597,3 +597,21 @@ func MapAsaasError(statusCode int, body string) error {
 	}
 	return fmt.Errorf("asaas error: %d - %s", statusCode, body)
 }
+
+// GetPixQRCode returns the PIX QR code (image in base64 and copy-paste code)
+// of a payment.
+func (p *AsaasProvider) GetPixQRCode(ctx context.Context, paymentID string) (*PixQRCode, error) {
+	resp, err := p.doRequest(ctx, "GET", "/payments/"+paymentID+"/pixQrCode", nil)
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		EncodedImage   string `json:"encodedImage"`
+		Payload        string `json:"payload"`
+		ExpirationDate string `json:"expirationDate"`
+	}
+	if err := json.Unmarshal(resp, &raw); err != nil {
+		return nil, err
+	}
+	return &PixQRCode{QRCodeBase64: raw.EncodedImage, PixCode: raw.Payload, ExpiresAt: raw.ExpirationDate}, nil
+}

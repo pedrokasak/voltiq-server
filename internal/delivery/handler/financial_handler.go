@@ -43,8 +43,7 @@ func (h *FinancialHandler) GetFinancialTable(w http.ResponseWriter, r *http.Requ
 
 	data, err := h.financialUseCase.GetFinancialTable(r.Context(), domain.UUID(tenantID), tariff)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError,
-			request.Fail("FINANCIAL_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "FINANCIAL_ERROR")
 		return
 	}
 

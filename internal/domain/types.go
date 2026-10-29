@@ -332,6 +332,12 @@ type Import struct {
 	ErrorsJSON  map[string]any `json:"errors_json"`
 	CreatedAt   time.Time      `json:"created_at"`
 	CompletedAt *time.Time     `json:"completed_at"`
+
+	ReadingType       string            `json:"reading_type"`
+	ColumnMapping     map[string]string `json:"column_mapping,omitempty"`
+	DuplicatesSkipped int               `json:"duplicates_skipped"`
+	HasFile           bool              `json:"can_retry"`
+	UpdatedAt         *time.Time        `json:"updated_at,omitempty"`
 }
 
 // Alert represents a triggered alert
@@ -370,4 +376,51 @@ type Invite struct {
 	ExpiresAt  time.Time    `json:"expires_at"`
 	CreatedAt  time.Time    `json:"created_at"`
 	DeletedAt  *time.Time   `json:"deleted_at"`
+}
+
+// AlertRecipient configures who receives alerts (RF05.3). TransformerID and
+// GroupID nil means every transformer of the tenant.
+type AlertRecipient struct {
+	ID              UUID         `json:"id"`
+	TenantID        UUID         `json:"tenant_id"`
+	TransformerID   *UUID        `json:"transformer_id"`
+	TransformerCode *string      `json:"transformer_code,omitempty"`
+	GroupID         *UUID        `json:"group_id"`
+	GroupName       *string      `json:"group_name,omitempty"`
+	Channel         AlertChannel `json:"channel"`
+	Recipient       string       `json:"recipient"`
+	MinLevel        AlertType    `json:"min_level"`
+	Active          bool         `json:"active"`
+	CreatedAt       time.Time    `json:"created_at"`
+	UpdatedAt       *time.Time   `json:"updated_at"`
+}
+
+// AlertDelivery is one alert sent (or attempted) to a recipient (RF05.4).
+type AlertDelivery struct {
+	ID              UUID                `json:"id"`
+	TenantID        UUID                `json:"tenant_id"`
+	TransformerID   UUID                `json:"transformer_id"`
+	TransformerCode string              `json:"transformer_code,omitempty"`
+	BalanceID       UUID                `json:"balance_id"`
+	RecipientID     *UUID               `json:"recipient_id"`
+	Type            AlertType           `json:"type"`
+	Channel         AlertChannel        `json:"channel"`
+	Recipient       string              `json:"recipient"`
+	DeliveryStatus  AlertDeliveryStatus `json:"delivery_status"`
+	ErrorMessage    *string             `json:"error_message"`
+	Attempts        int                 `json:"attempts"`
+	LossPct         *float64            `json:"loss_pct"`
+	LimitPct        *float64            `json:"limit_pct"`
+	SentAt          *time.Time          `json:"sent_at"`
+	CreatedAt       time.Time           `json:"created_at"`
+}
+
+// TransformerGroup groups transformers for alert routing (RF05.3).
+type TransformerGroup struct {
+	ID             UUID      `json:"id"`
+	TenantID       UUID      `json:"tenant_id"`
+	Name           string    `json:"name"`
+	Description    string    `json:"description"`
+	TransformerIDs []UUID    `json:"transformer_ids"`
+	CreatedAt      time.Time `json:"created_at"`
 }

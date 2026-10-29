@@ -115,3 +115,9 @@ func (s *Service) ValidateRefreshToken(tokenString string) (*Claims, error) {
 
 	return claims, nil
 }
+
+// Expiration returns the access token lifetime.
+func (s *Service) Expiration() time.Duration { return s.expiration }
+
+// RefreshExpiration returns the refresh token lifetime.
+func (s *Service) RefreshExpiration() time.Duration { return s.refreshExpiration }

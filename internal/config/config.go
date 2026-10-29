@@ -21,10 +21,10 @@ func LoadEmailConfig() *EmailConfig {
 	return &EmailConfig{
 		Provider:     getEnv("EMAIL_PROVIDER", "resend"),
 		ResendAPIKey: getEnv("RESEND_API_KEY", ""),
-		FromEmail:    getEnv("EMAIL_FROM_EMAIL", "noreply@voltiq.com.br"),
+		FromEmail:    getEnv("EMAIL_FROM", getEnv("EMAIL_FROM_EMAIL", "noreply@voltiq.com.br")),
 		FromName:     getEnv("EMAIL_FROM_NAME", "Voltiq Software"),
 		ReplyTo:      getEnv("EMAIL_REPLY_TO", "suporte@voltiq.com.br"),
-		BaseURL:      getEnv("APP_BASE_URL", "https://app.voltiq.com.br"),
+		BaseURL:      getEnv("DASHBOARD_URL", getEnv("APP_BASE_URL", "https://app.voltiq.com.br")),
 	}
 }
 

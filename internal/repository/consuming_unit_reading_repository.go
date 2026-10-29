@@ -85,11 +85,12 @@ func (r *UCReadingRepository) GetByTransformerAndPeriod(
 	query := `
 		SELECT id, tenant_id, uc_id, transformer_id, reading_at, consumption_kwh, import_id, created_at
 		FROM consuming_unit_readings
-		WHERE transformer_id = $1 AND reading_at >= $2 AND reading_at <= $3
+		WHERE transformer_id = $1 AND reading_at >= $2 AND reading_at <= $3 /*tenant*/
 		ORDER BY reading_at ASC
 	`
 
-	rows, err := r.db.Pool.Query(ctx, query, transformerID, start, end)
+	q, args := scoped(ctx, query, transformerID, start, end)
+	rows, err := r.db.Pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -128,11 +129,12 @@ func (r *UCReadingRepository) GetTotalByTransformerAndPeriod(
 	query := `
 		SELECT COALESCE(SUM(consumption_kwh), 0)
 		FROM consuming_unit_readings
-		WHERE transformer_id = $1 AND reading_at >= $2 AND reading_at <= $3
+		WHERE transformer_id = $1 AND reading_at >= $2 AND reading_at <= $3 /*tenant*/
 	`
 
 	var total float64
-	err := r.db.Pool.QueryRow(ctx, query, transformerID, start, end).Scan(&total)
+	q, args := scoped(ctx, query, transformerID, start, end)
+	err := r.db.Pool.QueryRow(ctx, q, args...).Scan(&total)
 	if err != nil {
 		return 0, err
 	}
@@ -149,11 +151,12 @@ func (r *UCReadingRepository) GetByUCAndPeriod(
 	query := `
 		SELECT id, tenant_id, uc_id, transformer_id, reading_at, consumption_kwh, import_id, created_at
 		FROM consuming_unit_readings
-		WHERE uc_id = $1 AND reading_at >= $2 AND reading_at <= $3
+		WHERE uc_id = $1 AND reading_at >= $2 AND reading_at <= $3 /*tenant*/
 		ORDER BY reading_at ASC
 	`
 
-	rows, err := r.db.Pool.Query(ctx, query, ucID, start, end)
+	q, args := scoped(ctx, query, ucID, start, end)
+	rows, err := r.db.Pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -181,4 +184,130 @@ func (r *UCReadingRepository) GetByUCAndPeriod(
 	}
 
 	return readings, nil
+}
+
+// ExistingKeys returns which (UC, instant) pairs already have a reading.
+func (r *UCReadingRepository) ExistingKeys(ctx context.Context, tenantID domain.UUID, ids []domain.UUID, start, end time.Time) (map[ReadingKey]bool, error) {
+	out := map[ReadingKey]bool{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	strIDs := make([]string, len(ids))
+	for i, id := range ids {
+		strIDs[i] = string(id)
+	}
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT uc_id, reading_at FROM consuming_unit_readings
+		WHERE tenant_id = $1 AND uc_id = ANY($2::uuid[]) AND reading_at BETWEEN $3 AND $4`,
+		tenantID, strIDs, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k ReadingKey
+		if err := rows.Scan(&k.MeterID, &k.At); err != nil {
+			return nil, err
+		}
+		out[ReadingKey{MeterID: k.MeterID, At: k.At.UTC()}] = true
+	}
+	return out, rows.Err()
+}
+
+// CopyInsert bulk-inserts UC readings inside tx using COPY.
+func (r *UCReadingRepository) CopyInsert(ctx context.Context, tx pgx.Tx, readings []*domain.UCReading) (int64, error) {
+	if len(readings) == 0 {
+		return 0, nil
+	}
+	return tx.CopyFrom(ctx,
+		pgx.Identifier{"consuming_unit_readings"},
+		[]string{"id", "tenant_id", "uc_id", "transformer_id", "reading_at", "consumption_kwh", "import_id", "created_at"},
+		pgx.CopyFromSlice(len(readings), func(i int) ([]any, error) {
+			rd := readings[i]
+			var importID any
+			if rd.ImportID != nil {
+				importID = string(*rd.ImportID)
+			}
+			return []any{string(rd.ID), string(rd.TenantID), string(rd.UCID), string(rd.TransformerID),
+				rd.ReadingAt, rd.ConsumptionKWh, importID, rd.CreatedAt}, nil
+		}),
+	)
+}
+
+// DeleteByImport removes the UC readings created by an import.
+func (r *UCReadingRepository) DeleteByImport(ctx context.Context, tx pgx.Tx, tenantID, importID domain.UUID) (int64, error) {
+	tag, err := tx.Exec(ctx, `DELETE FROM consuming_unit_readings WHERE tenant_id = $1 AND import_id = $2`, tenantID, importID)
+	return tag.RowsAffected(), err
+}
+
+// UCConsumption is the consumption of one UC in a period.
+type UCConsumption struct {
+	UCID           domain.UUID `json:"uc_id"`
+	UCCode         string      `json:"uc_code"`
+	Name           string      `json:"name"`
+	Class          *string     `json:"class"`
+	ConsumptionKWh float64     `json:"consumption_kwh"`
+	Readings       int         `json:"readings"`
+}
+
+// ConsumptionByUC returns the consumption of each UC of a transformer in a
+// period, largest first (top consumidores do trafo).
+func (r *UCReadingRepository) ConsumptionByUC(ctx context.Context, transformerID domain.UUID, start, end time.Time, limit int) ([]UCConsumption, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	q, args := scopedColumn(ctx, "u.tenant_id", `
+		SELECT u.id, u.uc_code, COALESCE(u.name, ''), u.class,
+			COALESCE(SUM(r.consumption_kwh), 0)::float8, COUNT(r.id)
+		FROM consuming_units u
+		LEFT JOIN consuming_unit_readings r ON r.uc_id = u.id AND r.reading_at >= $2 AND r.reading_at <= $3
+		WHERE u.transformer_id = $1 AND u.deleted_at IS NULL /*tenant*/
+		GROUP BY u.id, u.uc_code, u.name, u.class
+		ORDER BY 5 DESC, u.uc_code
+		LIMIT $4`, transformerID, start, end, limit)
+	rows, err := r.db.Pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UCConsumption
+	for rows.Next() {
+		var c UCConsumption
+		if err := rows.Scan(&c.UCID, &c.UCCode, &c.Name, &c.Class, &c.ConsumptionKWh, &c.Readings); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// UCReadingWithCode is a UC reading with the UC code.
+type UCReadingWithCode struct {
+	domain.UCReading
+	UCCode string
+}
+
+// ListWithCodes returns the UC readings of a transformer in a period with
+// the UC codes, ordered by UC and time.
+func (r *UCReadingRepository) ListWithCodes(ctx context.Context, transformerID domain.UUID, start, end time.Time) ([]UCReadingWithCode, error) {
+	q, args := scopedColumn(ctx, "r.tenant_id", `
+		SELECT r.id, r.tenant_id, r.uc_id, r.transformer_id, r.reading_at, r.consumption_kwh::float8, u.uc_code
+		FROM consuming_unit_readings r
+		JOIN consuming_units u ON u.id = r.uc_id
+		WHERE r.transformer_id = $1 AND r.reading_at >= $2 AND r.reading_at <= $3 /*tenant*/
+		ORDER BY u.uc_code, r.reading_at`, transformerID, start, end)
+	rows, err := r.db.Pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UCReadingWithCode
+	for rows.Next() {
+		var x UCReadingWithCode
+		if err := rows.Scan(&x.ID, &x.TenantID, &x.UCID, &x.TransformerID, &x.ReadingAt, &x.ConsumptionKWh, &x.UCCode); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
 }

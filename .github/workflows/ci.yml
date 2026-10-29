@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, "claude/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: timescale/timescaledb:2.14.2-pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: voltiq
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/voltiq?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l cmd internal pkg tests)" || (gofmt -l cmd internal pkg tests; exit 1)
+      - name: go vet
+        run: go vet ./...
+      - name: Migrations
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          scripts/migrate.sh
+      - name: Tests
+        run: go test ./... -count=1 -coverprofile=coverage.out
+      - name: Cobertura do motor de calculo (>= 80%)
+        run: |
+          go test ./internal/calc/ -coverprofile=calc.out >/dev/null
+          pct=$(go tool cover -func=calc.out | awk '/^total:/ {gsub("%","",$3); print $3}')
+          echo "calc coverage: $pct%"
+          awk -v p="$pct" 'BEGIN { exit (p >= 80) ? 0 : 1 }'
+      - name: Build
+        run: CGO_ENABLED=0 go build -o /tmp/api ./cmd/api

@@ -1,6 +1,9 @@
 package usecase
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Common usecase errors
 var (
@@ -14,3 +17,21 @@ var (
 	ErrSubscriptionAlreadyActive = errors.New("subscription already active")
 	ErrPaymentProviderError      = errors.New("payment provider error")
 )
+
+// Generic errors mapped to HTTP status codes by the delivery layer.
+var (
+	ErrNotFound   = errors.New("not found")
+	ErrConflict   = errors.New("conflict")
+	ErrForbidden  = errors.New("forbidden")
+	ErrBadRequest = errors.New("bad request")
+)
+
+// badRequest wraps a user-facing validation message.
+func badRequest(msg string) error {
+	return fmt.Errorf("%w: %s", ErrBadRequest, msg)
+}
+
+// conflict wraps a user-facing conflict message.
+func conflict(msg string) error {
+	return fmt.Errorf("%w: %s", ErrConflict, msg)
+}

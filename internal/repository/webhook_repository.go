@@ -127,6 +127,7 @@ func (r *WebhookEventRepository) GetPendingRetries(ctx context.Context, gateway 
 		SELECT gateway, event_id, event_type, payload, created_at, processing_error
 		FROM payment_webhook_events
 		WHERE gateway = $1 AND processed_at IS NULL AND processing_error IS NOT NULL AND created_at <= $2
+			AND created_at >= NOW() - INTERVAL '3 days'
 		ORDER BY created_at ASC
 		LIMIT 100
 	`
@@ -158,9 +159,8 @@ func (r *WebhookEventRepository) GetPendingRetries(ctx context.Context, gateway 
 		if createdAt.Valid {
 			event.Timestamp = createdAt.Time
 		}
-		if processingError.Valid {
-			event.Raw = []byte(processingError.String)
-		}
+		// payload guarda o corpo original; processing_error fica no banco
+		_ = processingError
 
 		events = append(events, &event)
 	}

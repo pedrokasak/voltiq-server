@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -47,14 +49,14 @@ func (r *InviteRepository) GetByToken(ctx context.Context, token string) (*domai
 	query := `
 		SELECT id, tenant_id, email, role, token, status, invited_by, accepted_at, expires_at, created_at, deleted_at
 		FROM invites
-		WHERE token = $1 AND deleted_at IS NULL
+		WHERE (token = $1 OR token = $2) AND deleted_at IS NULL
 	`
 
 	invite := &domain.Invite{}
 	var acceptedAt pgtype.Timestamptz
 	var deletedAt pgtype.Timestamptz
 
-	err := r.db.Pool.QueryRow(ctx, query, token).Scan(
+	err := r.db.Pool.QueryRow(ctx, query, token, HashToken(token)).Scan(
 		&invite.ID,
 		&invite.TenantID,
 		&invite.Email,
@@ -135,7 +137,7 @@ func (r *InviteRepository) Update(ctx context.Context, invite *domain.Invite) er
 	query := `
 		UPDATE invites
 		SET status = $1, accepted_at = $2, deleted_at = $3, updated_at = $4
-		WHERE id = $5
+		WHERE id = $5 /*tenant*/
 	`
 
 	var acceptedAt, deletedAt *time.Time
@@ -146,13 +148,14 @@ func (r *InviteRepository) Update(ctx context.Context, invite *domain.Invite) er
 		deletedAt = invite.DeletedAt
 	}
 
-	_, err := r.db.Pool.Exec(ctx, query,
+	q, args := scoped(ctx, query,
 		invite.Status,
 		acceptedAt,
 		deletedAt,
 		time.Now(),
 		invite.ID,
 	)
+	_, err := r.db.Pool.Exec(ctx, q, args...)
 
 	return err
 }
@@ -167,4 +170,67 @@ func (r *InviteRepository) Delete(ctx context.Context, id domain.UUID) error {
 
 	_, err := r.db.Pool.Exec(ctx, query, time.Now(), id)
 	return err
+}
+
+// HashToken returns the SHA-256 of an invite token. New invites store only
+// the hash; lookups accept legacy rows that stored the raw token.
+func HashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+const inviteColumns = `id, tenant_id, email, role, token, status, invited_by, accepted_at, expires_at, created_at, deleted_at`
+
+func scanInvite(row pgx.Row) (*domain.Invite, error) {
+	inv := &domain.Invite{}
+	err := row.Scan(&inv.ID, &inv.TenantID, &inv.Email, &inv.Role, &inv.Token, &inv.Status, &inv.InvitedBy,
+		&inv.AcceptedAt, &inv.ExpiresAt, &inv.CreatedAt, &inv.DeletedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	inv.Token = "" // nunca expor o token (ou seu hash)
+	return inv, nil
+}
+
+// GetByID retrieves an invite of the request tenant.
+func (r *InviteRepository) GetByID(ctx context.Context, id domain.UUID) (*domain.Invite, error) {
+	q, args := scoped(ctx, `SELECT `+inviteColumns+` FROM invites WHERE id = $1 AND deleted_at IS NULL /*tenant*/`, id)
+	return scanInvite(r.db.Pool.QueryRow(ctx, q, args...))
+}
+
+// ListPending lists the pending, non-expired invites of a tenant.
+func (r *InviteRepository) ListPending(ctx context.Context, tenantID domain.UUID) ([]*domain.Invite, error) {
+	rows, err := r.db.Pool.Query(ctx, `SELECT `+inviteColumns+` FROM invites
+		WHERE tenant_id = $1 AND status = 'PENDING' AND deleted_at IS NULL AND expires_at > NOW()
+		ORDER BY created_at DESC`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*domain.Invite{}
+	for rows.Next() {
+		inv, err := scanInvite(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, inv)
+	}
+	return out, rows.Err()
+}
+
+// RenewToken replaces the token hash and expiry of a pending invite.
+func (r *InviteRepository) RenewToken(ctx context.Context, id domain.UUID, tokenHash string, expiresAt time.Time) error {
+	q, args := scoped(ctx, `UPDATE invites SET token = $1, expires_at = $2, updated_at = NOW()
+		WHERE id = $3 AND status = 'PENDING' AND deleted_at IS NULL /*tenant*/`, tokenHash, expiresAt, id)
+	tag, err := r.db.Pool.Exec(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

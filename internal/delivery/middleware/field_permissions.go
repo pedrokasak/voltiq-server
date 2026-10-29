@@ -6,14 +6,7 @@ import (
 
 // CanViewFinancialData verifica se role tem acesso a dados financeiros
 func CanViewFinancialData(role domain.UserRole) bool {
-	switch role {
-	case domain.UserRoleSuperAdmin, domain.UserRoleOwner, domain.UserRoleAdmin, domain.UserRoleManager:
-		return true
-	case domain.UserRoleEngineer, domain.UserRoleViewer:
-		return false
-	default:
-		return false
-	}
+	return domain.HasPermission(role, domain.PermissionFinancialView)
 }
 
 // BalanceResponseDTO versão completa (SUPER_ADMIN/OWNER/ADMIN/MANAGER)

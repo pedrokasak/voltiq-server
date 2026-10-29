@@ -7,25 +7,15 @@ import (
 	"github.com/voltiq/server/internal/domain"
 )
 
-// RequireFinancialAccess middleware bloqueia ENGINEER/VIEWER em endpoints financeiros
+// RequireFinancialAccess bloqueia papeis sem financial:view (ENGINEER/VIEWER)
+// em endpoints financeiros.
 func RequireFinancialAccess(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		role := GetUserRole(r.Context())
-
-		// Roles com acesso financeiro
-		allowedRoles := map[domain.UserRole]bool{
-			domain.UserRoleSuperAdmin: true,
-			domain.UserRoleOwner:      true,
-			domain.UserRoleAdmin:      true,
-			domain.UserRoleManager:    true,
-		}
-
-		if !allowedRoles[domain.UserRole(role)] {
+		if !CanViewFinancialData(domain.UserRole(GetUserRole(r.Context()))) {
 			request.WriteJSON(w, http.StatusForbidden,
 				request.Fail("FORBIDDEN", "Acesso a dados financeiros restrito", nil))
 			return
 		}
-
 		next.ServeHTTP(w, r)
 	})
 }

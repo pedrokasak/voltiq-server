@@ -21,6 +21,8 @@
         </div>
 
         <!-- Critical Alert Banner -->
+        <p style="margin: 24px 0 0; color: #1e1e2e; font-size: 15px;">Olá, <strong>{{.tenant_name}}</strong>.</p>
+
         <div style="background: #fef2f2; border: 2px solid #ef4444; border-radius: 12px; padding: 24px; margin: 24px 0;">
             <div style="display: flex; align-items: flex-start; gap: 12px;">
                 <div style="flex-shrink: 0; width: 32px; height: 32px; background: #dc2626; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
@@ -63,7 +65,7 @@
 
         <!-- Action Button - High Priority -->
         <div style="text-align: center; margin: 32px 0;">
-            <a href="{{.BillingURL}}" style="display: inline-block; background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); color: white; padding: 18px 40px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 18px; box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4);">
+            <a href="{{.billing_url}}" style="display: inline-block; background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); color: white; padding: 18px 40px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 18px; box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4);">
                 PAGAR AGORA - EVITAR SUSPENSÃO
             </a>
             <p style="margin: 16px 0 0; color: #dc2626; font-size: 14px; font-weight: 500;">Opções: PIX (instantâneo), Boleto ou Cartão de crédito</p>

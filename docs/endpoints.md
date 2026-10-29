@@ -1,910 +1,165 @@
-# EnergyBalance API Documentation
+# Voltiq API - catálogo de endpoints
 
-## Visão Geral
+Base: `https://voltiq-sw-server.fly.dev/api/v1` (local: `http://localhost:8080/api/v1`).
+Autenticação: `Authorization: Bearer <token>`; o refresh token vai no cookie
+HttpOnly `refresh_token`. Respostas usam o envelope:
 
-API REST para cálculo de balanço de energia e perdas técnicas em transformadores de distribuição, seguindo a regulamentação ANEEL (PRODIST Módulo 7).
-
-**Base URL:** `http://localhost:8080/api/v1`
-
-**Autenticação:** Bearer Token (JWT)
-
-```bash
-Authorization: Bearer <your_token_here>
-```
-
----
-
-## Índice
-
-1. [Health & Metrics](#health--metrics)
-2. [Autenticação](#autenticação)
-3. [Convites (Invites)](#convites-invites)
-4. [Transformadores](#transformadores)
-5. [Unidades Consumidoras](#unidades-consumidoras)
-6. [Balanço de Energia](#balanço-de-energia)
-7. [Importação CSV](#importação-csv)
-
----
-
-## Health & Metrics
-
-### GET /health
-Health check para liveness probe.
-
-**Auth:** Não requer
-
-**Response:**
 ```json
-{
-  "success": true,
-  "data": {
-    "status": "healthy",
-    "timestamp": "2025-01-15T10:30:00Z",
-    "version": "0.1.0"
-  }
-}
+{ "success": true, "data": { }, "message": "" }
+{ "success": false, "error": { "code": "VALIDATION_ERROR", "message": "dados inválidos", "details": [{"field": "power_kva", "message": "..."}] } }
 ```
 
-### GET /ready
-Readiness probe para verificar se a API está pronta para receber tráfego.
-
-**Auth:** Não requer
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "status": "ready",
-    "timestamp": "2025-01-15T10:30:00Z",
-    "version": "0.1.0",
-    "checks": {
-      "database": "ok",
-      "migrations": "ok"
-    }
-  }
-}
-```
-
-### GET /metrics
-Métricas Prometheus para monitoramento.
-
-**Auth:** Não requer
-
-**Response (text/plain):**
-```
-# HELP api_requests_total Total number of API requests
-# TYPE api_requests_total counter
-api_requests_total{method="GET",endpoint="/transformers"} 1542
-api_requests_total{method="POST",endpoint="/imports/transformers"} 89
-# HELP api_uptime_seconds API uptime in seconds
-# TYPE api_uptime_seconds gauge
-api_uptime_seconds 3600
-```
-
----
-
-## Autenticação
-
-### POST /auth/signup
-Cria uma nova conta (tenant) e usuário admin. Self-service onboarding.
-
-**Auth:** Não requer
-
-**Request:**
-```json
-{
-  "tenant_name": "Cooperativa de Energia Rural",
-  "tenant_document": "12.345.678/0001-90",
-  "plan": "trial",
-  "admin_name": "João Silva",
-  "admin_email": "joao@cooperativa.com.br",
-  "admin_password": "SenhaForte123!"
-}
-```
-
-**Planos disponíveis:** `trial`, `starter`, `pro`, `enterprise`
-
-**Response (201):**
-```json
-{
-  "success": true,
-  "data": {
-    "tenant": {
-      "id": "uuid",
-      "name": "Cooperativa de Energia Rural",
-      "document": "12.345.678/0001-90",
-      "plan": "trial",
-      "trial_until": "2025-02-14T00:00:00Z",
-      "active": true
-    },
-    "user": {
-      "id": "uuid",
-      "tenant_id": "uuid",
-      "email": "joao@cooperativa.com.br",
-      "name": "João Silva",
-      "role": "ADMIN"
-    }
-  },
-  "message": "account created successfully"
-}
-```
-
-### POST /auth/login
-Autentica usuário e retorna token JWT.
-
-**Auth:** Não requer
-
-**Request:**
-```json
-{
-  "email": "joao@cooperativa.com.br",
-  "password": "SenhaForte123!"
-}
-```
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expires_at": "2025-01-16T10:30:00Z",
-    "user": {
-      "id": "uuid",
-      "tenant_id": "uuid",
-      "email": "joao@cooperativa.com.br",
-      "name": "João Silva",
-      "role": "ADMIN"
-    }
-  },
-  "message": "login successful"
-}
-```
-
-### POST /auth/refresh
-Renova o token de acesso usando refresh token.
-
-**Auth:** Não requer (usa refresh token)
-
-**Request:**
-```json
-{
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "token": "novo_access_token",
-    "expires_at": "2025-01-16T10:30:00Z",
-    "refresh_token": "novo_refresh_token",
-    "refresh_expiry": "2025-01-22T10:30:00Z"
-  },
-  "message": "token refreshed successfully"
-}
-```
-
-### POST /auth/logout
-Invalida tokens (logout).
-
-**Auth:** Requer Bearer token
-
-**Request:**
-```json
-{
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "message": "logout successful"
-}
-```
-
----
-
-## Convites (Invites)
-
-### POST /invites
-Cria um convite para novo usuário (requer role ADMIN).
-
-**Auth:** Requer Bearer token (ADMIN)
-
-**Request:**
-```json
-{
-  "email": "maria@cooperativa.com.br",
-  "role": "ENGINEER"
-}
-```
-
-**Roles disponíveis:** `ADMIN`, `ENGINEER`, `VIEWER`
-
-**Response (201):**
-```json
-{
-  "success": true,
-  "data": {
-    "invite_id": "uuid",
-    "email": "maria@cooperativa.com.br",
-    "role": "ENGINEER",
-    "token": "token-unico-para-aceite",
-    "expires_at": "2025-01-22T10:30:00Z",
-    "status": "PENDING"
-  },
-  "message": "invite created successfully"
-}
-```
-
-### GET /invites/{token}
-Valida um token de convite.
-
-**Auth:** Não requer
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "invite_id": "uuid",
-    "email": "maria@cooperativa.com.br",
-    "role": "ENGINEER",
-    "tenant_id": "uuid",
-    "expires_at": "2025-01-22T10:30:00Z",
-    "status": "PENDING"
-  },
-  "message": "invite is valid"
-}
-```
-
-### POST /invites/{token}/accept
-Aceita um convite e cria a conta do usuário.
-
-**Auth:** Não requer
-
-**Request:**
-```json
-{
-  "name": "Maria Santos",
-  "password": "SenhaForte123!"
-}
-```
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "user": {
-      "id": "uuid",
-      "tenant_id": "uuid",
-      "email": "maria@cooperativa.com.br",
-      "name": "Maria Santos",
-      "role": "ENGINEER",
-      "active": true
-    }
-  },
-  "message": "invite accepted successfully"
-}
-```
-
-### DELETE /invites/{id}
-Cancela um convite pendente.
-
-**Auth:** Requer Bearer token (ADMIN)
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "message": "invite cancelled successfully"
-}
-```
-
----
-
-## Transformadores
-
-### POST /api/v1/transformers
-Cria um novo transformador.
-
-**Auth:** Requer Bearer token
-
-**Request:**
-```json
-{
-  "code": "TRF-001",
-  "power_kva": 112.5,
-  "primary_voltage_kv": 13.8,
-  "secondary_voltage_v": 220,
-  "lat": -23.550520,
-  "lng": -46.633308,
-  "core_loss_kw": 0.340,
-  "winding_loss_kw": 1.450,
-  "loss_limit_pct": 10.0,
-  "substation_id": "uuid-opcional"
-}
-```
-
-**Response (201):**
-```json
-{
-  "success": true,
-  "data": {
-    "id": "uuid",
-    "tenant_id": "uuid",
-    "code": "TRF-001",
-    "power_kva": 112.5,
-    "primary_voltage_kv": 13.8,
-    "secondary_voltage_v": 220,
-    "lat": -23.550520,
-    "lng": -46.633308,
-    "core_loss_kw": 0.340,
-    "winding_loss_kw": 1.450,
-    "loss_limit_pct": 10.0,
-    "active": true,
-    "created_at": "2025-01-15T10:30:00Z",
-    "updated_at": "2025-01-15T10:30:00Z"
-  },
-  "message": "transformer created successfully"
-}
-```
-
-### GET /api/v1/transformers
-Lista todos os transformadores do tenant.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "uuid",
-      "tenant_id": "uuid",
-      "code": "TRF-001",
-      "power_kva": 112.5,
-      "active": true
-    }
-  ]
-}
-```
-
-### GET /api/v1/transformers/{id}
-Obtém detalhes de um transformador.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "id": "uuid",
-    "code": "TRF-001",
-    "power_kva": 112.5,
-    "primary_voltage_kv": 13.8,
-    "secondary_voltage_v": 220,
-    "lat": -23.550520,
-    "lng": -46.633308,
-    "core_loss_kw": 0.340,
-    "winding_loss_kw": 1.450,
-    "loss_limit_pct": 10.0,
-    "active": true
-  }
-}
-```
-
-### PUT /api/v1/transformers/{id}
-Atualiza um transformador.
-
-**Auth:** Requer Bearer token
-
-**Request:** (mesmo schema de criação, campos opcionais)
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": { ... },
-  "message": "transformer updated successfully"
-}
-```
-
-### DELETE /api/v1/transformers/{id}
-Remove um transformador (soft delete - atualiza `deleted_at`).
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "message": "transformer deleted successfully"
-}
-```
-
-**Nota:** Este endpoint realiza **soft delete** atualizando o campo `deleted_at`, não remove o registro do banco. Conforme SDD 04-DESIGN-DETALHADO/01-modelo-de-dados.md.
-
-### GET /api/v1/transformers/count
-Conta total de transformadores.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "count": 42
-  }
-}
-```
-
-### GET /api/v1/transformers/{id}/technical-data
-Obtém dados técnicos do transformador.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "transformer_id": "uuid",
-    "code": "TRF-001",
-    "power_kva": 112.5,
-    "primary_voltage_kv": 13.8,
-    "secondary_voltage_v": 220,
-    "core_loss_kw": 0.340,
-    "winding_loss_kw": 1.450,
-    "nominal_current": 295.08
-  }
-}
-```
-
-### GET /api/v1/transformers/{id}/location
-Obtém localização do transformador.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "transformer_id": "uuid",
-    "code": "TRF-001",
-    "lat": -23.550520,
-    "lng": -46.633308
-  }
-}
-```
-
----
-
-## Unidades Consumidoras
-
-### POST /api/v1/consuming-units
-Cria uma nova unidade consumidora.
-
-**Auth:** Requer Bearer token
-
-**Request:**
-```json
-{
-  "transformer_id": "uuid",
-  "uc_code": "UC-001",
-  "name": "Residência João Silva",
-  "class": "RESIDENTIAL",
-  "active": true
-}
-```
-
-**Classes disponíveis:** `RESIDENTIAL`, `COMMERCIAL`, `INDUSTRIAL`, `RURAL`, `PUBLIC_POWER`
-
-**Response (201):**
-```json
-{
-  "success": true,
-  "data": {
-    "id": "uuid",
-    "tenant_id": "uuid",
-    "transformer_id": "uuid",
-    "uc_code": "UC-001",
-    "name": "Residência João Silva",
-    "class": "RESIDENTIAL",
-    "active": true
-  },
-  "message": "consuming unit created successfully"
-}
-```
-
-### GET /api/v1/consuming-units
-Lista todas as UCs do tenant.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": [...]
-}
-```
-
-### GET /api/v1/consuming-units/transformer/{transformer_id}
-Lista UCs vinculadas a um transformador.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": [...]
-}
-```
-
-### PUT /api/v1/consuming-units/{id}
-Atualiza uma UC.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": { ... },
-  "message": "consuming unit updated successfully"
-}
-```
-
-### DELETE /api/v1/consuming-units/{id}
-Remove uma UC (soft delete).
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "message": "consuming unit deleted successfully"
-}
-```
-
----
-
-## Balanço de Energia
-
-### POST /api/v1/balance/transformer/{transformer_id}/calculate
-Calcula o balanço de energia para um transformador.
-
-**Auth:** Requer Bearer token
-
-**Request:**
-```json
-{
-  "period_start": "2025-01-01",
-  "period_end": "2025-01-31"
-}
-```
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "id": "uuid",
-    "tenant_id": "uuid",
-    "transformer_id": "uuid",
-    "period_start": "2025-01-01",
-    "period_end": "2025-01-31",
-    "energy_injected_kwh": 15000.50,
-    "total_consumption_kwh": 13500.25,
-    "loss_kwh": 1500.25,
-    "loss_pct": 10.00,
-    "status": "NORMAL",
-    "uc_count": 45,
-    "calculated_at": "2025-01-15T10:30:00Z"
-  },
-  "message": "balance calculated successfully"
-}
-```
-
-**Status possíveis:** `NORMAL`, `WARNING`, `CRITICAL`
-
-### GET /api/v1/balance/transformer/{transformer_id}
-Lista balanços por período.
-
-**Auth:** Requer Bearer token
-
-**Query Params:**
-- `period_start` (YYYY-MM-DD)
-- `period_end` (YYYY-MM-DD)
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": [...]
-}
-```
-
-### GET /api/v1/balance/transformer/{transformer_id}/latest
-Obtém o último balanço calculado.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": { ... }
-}
-```
-
-### GET /api/v1/balance/transformer/{transformer_id}/technical-loss
-Calcula perdas técnicas conforme PRODIST Módulo 7.
-
-**Auth:** Requer Bearer token
-
-**Query Params:**
-- `period_start` (YYYY-MM-DD)
-- `period_end` (YYYY-MM-DD)
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "transformer_id": "uuid",
-    "tenant_id": "uuid",
-    "energy_injected_kwh": 15000.50,
-    "total_consumption_kwh": 13500.25,
-    "loss_kwh": 1500.25,
-    "loss_pct": 10.00,
-    "technical_loss_trafo_kwh": 1200.00,
-    "non_technical_loss_kwh": 300.25,
-    "status": "NORMAL",
-    "limit_pct": 10.0,
-    "uc_count": 45,
-    "calculated_at": "2025-01-15T10:30:00Z"
-  }
-}
-```
-
----
-
-## Importação CSV
-
-### POST /api/v1/imports/transformers
-Faz upload de CSV com leituras de transformadores.
-
-**Auth:** Requer Bearer token
-
-**Content-Type:** `multipart/form-data`
-
-**Form Data:**
-- `file`: arquivo CSV
-
-**Formato do CSV:**
-```csv
-transformer_id,reading_at,energy_kwh,demand_kw,power_factor
-uuid,2025-01-15 10:00:00,1500.50,120.5,0.92
-```
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "import_id": "uuid",
-    "status": "COMPLETED",
-    "total_rows": 1000,
-    "rows_ok": 950,
-    "rows_error": 50,
-    "message": "imported 950 readings successfully"
-  }
-}
-```
-
-### POST /api/v1/imports/ucs
-Faz upload de CSV com leituras de UCs.
-
-**Auth:** Requer Bearer token
-
-**Formato do CSV:**
-```csv
-uc_id,transformer_id,reading_at,consumption_kwh
-uuid,uuid,2025-01-15 10:00:00,250.50
-```
-
-### GET /api/v1/imports
-Lista todas as importações do tenant.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "imports": [...],
-    "count": 15
-  }
-}
-```
-
-### GET /api/v1/imports/{id}
-Obtém detalhes de uma importação.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "import_id": "uuid",
-    "file_name": "leituras_jan_2025.csv",
-    "status": "COMPLETED",
-    "total_rows": 1000,
-    "rows_ok": 950,
-    "rows_error": 50,
-    "errors": {
-      "line_45": "UC not found",
-      "line_78": "invalid date format"
-    },
-    "created_at": "2025-01-15T10:30:00Z",
-    "completed_at": "2025-01-15T10:35:00Z"
-  }
-}
-```
-
-### GET /api/v1/imports/{id}/status
-Obtém status detalhado com progresso.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "import_id": "uuid",
-    "file_name": "leituras_jan_2025.csv",
-    "status": "PROCESSING",
-    "progress_pct": 75,
-    "total_rows": 1000,
-    "rows_ok": 750,
-    "rows_error": 0,
-    "errors": null,
-    "created_at": "2025-01-15T10:30:00Z",
-    "completed_at": null
-  }
-}
-```
-
-### GET /api/v1/imports/summary
-Obtém resumo estatístico das importações.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "total_imports": 15,
-    "completed": 12,
-    "processing": 2,
-    "failed": 1,
-    "total_rows": 15000,
-    "total_rows_ok": 14250,
-    "total_rows_error": 750,
-    "success_rate": 95.0
-  }
-}
-```
-
-### GET /api/v1/imports/history
-Histórico de importações com filtros.
-
-**Auth:** Requer Bearer token
-
-**Query Params:**
-- `status`: `PROCESSING`, `COMPLETED`, `ERROR`
-- `limit`: número máximo de registros (default: 50)
-
-### GET /api/v1/imports/{id}/errors
-Baixa relatório de erros de uma importação.
-
-**Auth:** Requer Bearer token
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "line_45": "UC not found",
-    "line_78": "invalid date format"
-  }
-}
-```
-
----
-
-## Códigos de Erro
-
-| Código | HTTP Status | Descrição |
-|--------|-------------|-----------|
-| `VALIDATION_ERROR` | 400 | Erro de validação de campos |
-| `UNAUTHORIZED` | 401 | Token inválido ou expirado |
-| `FORBIDDEN` | 403 | Permissões insuficientes |
-| `NOT_FOUND` | 404 | Recurso não encontrado |
-| `CREATE_ERROR` | 500 | Erro ao criar recurso |
-| `UPDATE_ERROR` | 500 | Erro ao atualizar recurso |
-| `DELETE_ERROR` | 500 | Erro ao deletar recurso |
-| `LIST_ERROR` | 500 | Erro ao listar recursos |
-| `CALCULATION_ERROR` | 500 | Erro no cálculo de balanço |
-| `IMPORT_ERROR` | 500 | Erro na importação CSV |
-| `INVALID_CREDENTIALS` | 401 | Email ou senha inválidos |
-| `SIGNUP_ERROR` | 400 | Erro no cadastro |
-| `INVITE_ERROR` | 400 | Erro no convite |
-| `INVITE_INVALID` | 400 | Convite inválido |
-| `INVITE_ACCEPT_ERROR` | 400 | Erro ao aceitar convite |
-| `INVITE_CANCEL_ERROR` | 400 | Erro ao cancelar convite |
-
----
-
-## Exemplos de Uso com cURL
-
-### Login
-```bash
-curl -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@example.com","password":"senha123"}'
-```
-
-### Criar Transformador
-```bash
-curl -X POST http://localhost:8080/api/v1/transformers \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "code": "TRF-001",
-    "power_kva": 112.5,
-    "primary_voltage_kv": 13.8,
-    "secondary_voltage_v": 220
-  }'
-```
-
-### Upload CSV
-```bash
-curl -X POST http://localhost:8080/api/v1/imports/transformers \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -F "file=@leituras.csv"
-```
-
-### Health Check
-```bash
-curl http://localhost:8080/health
-```
-
----
-
-## Considerações Finais
-
-- **Soft Delete:** Todos os endpoints DELETE realizam soft delete (atualizam `deleted_at`), conforme SDD.
-- **Multitenancy:** Todos os recursos são isolados por `tenant_id`.
-- **Rate Limiting:** Implementar conforme necessidade (env var `RATE_LIMIT_REQUESTS_PER_MINUTE`).
-- **CORS:** Configurável via `CORS_ALLOWED_ORIGINS`.
+Códigos usuais: 401 sem sessão, 402 `PLAN_LIMIT_REACHED`/`TRIAL_EXPIRED`/`TENANT_SUSPENDED`,
+403 `FORBIDDEN` (permissão), 404 (inclusive recurso de outro tenant), 409 conflito,
+422 validação, 429 limite de requisições (`Retry-After`).
+
+Datas sem fuso (`2026-09-01`) são interpretadas no horário de Brasília.
+
+## Permissões (RBAC)
+
+| Papel | Permissões |
+|---|---|
+| SUPER_ADMIN | todas + painel master `/admin` |
+| OWNER, ADMIN | todas do tenant (usuários, plano, auditoria, R$) |
+| MANAGER | operação + cadastros + dados financeiros (R$) |
+| ENGINEER | visualização + importação, leituras, balanço, alertas; sem R$ e sem cadastros |
+| VIEWER | somente visualização e exportação |
+
+`GET /roles` devolve os papéis com a lista de permissões; `GET /auth/me` devolve
+as permissões do usuário, limites do plano, uso e progresso do onboarding.
+
+## Limites de requisição
+
+| Categoria | Limite |
+|---|---|
+| login, signup, aceite de convite | 5/min por IP+UA |
+| refresh | 10/min |
+| importações | 20/min |
+| cálculo de balanço | 30/min |
+| demais | 60/min |
+
+## Rotas
+
+### Públicas
+| Método | Rota | Descrição |
+|---|---|---|
+| POST | /auth/login | `{email, password}` -> `{token, user, expires_at}` + cookie |
+| POST | /auth/signup | `{company_name, cnpj, name, email, password}`; cria tenant em trial (14 dias) e já autentica |
+| POST | /auth/refresh | usa o cookie; devolve novo token e `user` |
+| POST | /auth/logout | apaga o cookie |
+| GET | /invites/{token} | valida convite |
+| POST | /invites/{token}/accept | `{name, password}`; cria o usuário e autentica |
+| POST | /webhooks/asaas | webhook do Asaas (assinatura HMAC) |
+
+### Sessão, conta e usuários
+| Método | Rota | Permissão |
+|---|---|---|
+| GET | /auth/me | autenticado |
+| POST | /auth/change-password | autenticado |
+| GET | /roles, /onboarding, /tenant/settings | autenticado |
+| POST | /onboarding/complete | tenant:manage |
+| PUT | /tenant/settings | tenant:manage (`tariff_brl_mwh`, endereço) |
+| GET | /audit-logs?table=&operation=&user=&since=&until= | audit:view |
+| GET | /users | users:manage (usuários + convites pendentes) |
+| PATCH | /users/{id} | users:manage (`role`, `name`, `active`) |
+| DELETE | /users/{id} | users:manage |
+| POST/GET | /invites | users:manage (`{email, role}`; respeita assentos do plano) |
+| DELETE | /invites/{id} | users:manage |
+| POST | /invites/{id}/resend | users:manage |
+
+### Rede elétrica
+| Método | Rota | Permissão |
+|---|---|---|
+| GET | /substations, /substations/{id} | transformer:view |
+| POST/PUT/DELETE | /substations, /substations/{id} | transformer:manage |
+| GET | /transformers?search=&status=&substation_id=&group_id=&order_by=&page=&limit= | transformer:view |
+| GET | /transformers/{id}, /{id}/stats, /{id}/loss-analysis, /{id}/readings/series, /{id}/top-consumers | transformer:view |
+| POST/PUT/PATCH/DELETE | /transformers, /transformers/{id} (+ /batch) | transformer:manage (respeita limite do plano) |
+| POST | /transformers/import | transformer:manage (cadastro em massa CSV/XLSX, `dry_run`) |
+| POST | /transformers/{id}/readings | reading:manage (leitura manual, recalcula o mês) |
+| GET | /consuming-units, /consuming-units/{id}, /{id}/consumption | uc:view |
+| POST/PUT/PATCH/DELETE | /consuming-units, /consuming-units/{id} | uc:manage |
+| POST | /consuming-units/import | uc:manage |
+| POST | /consuming-units/{id}/readings | reading:manage |
+
+### Importação de leituras (CSV ou XLSX)
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | /imports/schemas | campos aceitos e sinônimos de cabeçalho |
+| GET | /imports/template?type=transformers\|ucs\|transformer_registry\|uc_registry | modelo CSV |
+| POST | /imports/validate | multipart `file`, `type`, `mapping` (JSON); pré-visualização sem gravar |
+| POST | /imports/transformers, /imports/ucs | importa; ignora duplicatas; recalcula balanços afetados |
+| POST | /imports/batch | vários arquivos |
+| GET | /imports, /imports/summary, /imports/{id}, /{id}/errors (CSV), /{id}/logs | histórico |
+| POST | /imports/{id}/retry | reprocessa o arquivo guardado |
+| DELETE | /imports/{id}?confirm=true | desfaz a importação (remove as leituras) |
+
+### Balanço, alertas e risco
+| Método | Rota | Permissão |
+|---|---|---|
+| POST | /balance/transformer/{id}/calculate | balance:calculate |
+| POST | /balance/calculate-all | balance:calculate |
+| GET | /balance/transformer/{id}, /latest, /technical-loss | reading:view |
+| GET/POST/PUT/DELETE | /alert-recipients (+ /{id}/test) | alert:manage para escrita |
+| GET/POST/PUT/DELETE | /transformer-groups | alert:manage para escrita |
+| GET | /alerts?status=&channel=&type=&days=, /alerts/stats, /alerts/{id} | dashboard:view |
+| GET | /risk/all-scores, /risk/all-anomalies, /risk/transformer/{id}/score | dashboard:view |
+
+### Dashboards e mapa
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | /dashboard/map?status=&substation_id=&group_id=&search= | trafos georreferenciados com último balanço, fator de carga, leituras atrasadas, alertas, subestações, bounds e centro; R$ só para quem tem financial:view |
+| GET | /dashboard/operational | rede, status, último mês x anterior, qualidade de dados, importações, alertas, trafos que pedem atenção, evolução 12 meses, subestações |
+| GET | /dashboard/managerial | **financial:view** - tarifa do tenant, mês atual x anterior, acumulado do ano, 12 meses, projeção anual, por subestação, top valor recuperável |
+| GET | /dashboard/kpis, /kpi-sparklines, /loss-evolution, /loss-composition, /status-distribution, /quarterly-injected-billed, /top-transformers, /transformer-current-status, /monthly-loss | gráficos |
+| GET | /dashboard/financial-table, /dashboard/accumulated-loss-cost | **financial:view** |
+
+### Relatórios
+| Método | Rota | Permissão |
+|---|---|---|
+| GET | /exports/balance/{transformer_id}?format=pdf\|excel\|csv&start=&end= | report:export |
+| GET | /exports/aneel?start=&end= | report:export + financial:view |
+| GET | /exports/readings?type=transformer\|uc&transformer_id=&start=&end= | report:export |
+| GET | /reports/comparative?month=YYYY-MM[&format=excel] | report:export |
+
+### Assinatura (OWNER/ADMIN)
+Acessível mesmo com trial expirado ou conta suspensa, para regularização.
+
+| Método | Rota |
+|---|---|
+| GET | /billing |
+| POST | /billing/activate `{plan, billing_type}` |
+| PATCH | /billing/plan `{plan}` (upgrade cobra a diferença proporcional) |
+| POST | /billing/cancel |
+| GET | /billing/payments, /billing/proration, /billing/dunning |
+| GET | /billing/payments/{id}/invoice, /boleto -> `{url}` |
+| GET | /billing/payments/{id}/pix-qrcode -> `{qr_code_base64, pix_code, expires_at}` |
+
+### Painel master (SUPER_ADMIN)
+| Método | Rota |
+|---|---|
+| GET | /admin/tenants?status=&plan=&search=&page=&limit= (com usuários, trafos, UCs, último acesso) |
+| GET | /admin/tenants/{id} (uso, limites, pagamentos, cobrança, ações administrativas) |
+| GET | /admin/tenants/{id}/users |
+| POST | /admin/tenants/{id}/activate `{plan}` |
+| PATCH | /admin/tenants/{id}/plan `{plan}` |
+| PATCH | /admin/tenants/{id}/status `{status, reason}` |
+| POST | /admin/tenants/{id}/extend-trial `{days, reason}` |
+| GET | /admin/billing/metrics?period=30d\|90d\|12m (MRR, ARR, churn, LTV, conversão de trial, NRR, por plano, série) |
+| GET | /admin/audit |
+
+## Jobs agendados
+
+Rodam dentro da API (`SCHEDULER_ENABLED=true`, horário de Brasília), com lock
+no Postgres para executar uma vez mesmo com várias máquinas:
+
+| Job | Quando |
+|---|---|
+| trial_expiration | diário 00:15 |
+| billing_metrics | diário 00:40 |
+| balance_daily | diário 02:10 (mês corrente; até o dia 5 também o anterior) |
+| dunning | diário 09:05 |
+| webhook_retry | a cada 15 min |
+| alert_retry | a cada 10 min |
+
+`api cron` executa todos uma vez (para agendadores externos).

@@ -23,13 +23,22 @@ func NewTenantRepository(db *Database) *TenantRepository {
 
 // Create inserts a new tenant into the database
 func (r *TenantRepository) Create(ctx context.Context, tenant *domain.Tenant) error {
+	return r.create(ctx, r.db.Pool, tenant)
+}
+
+// CreateTx inserts a new tenant inside a transaction.
+func (r *TenantRepository) CreateTx(ctx context.Context, tx pgx.Tx, tenant *domain.Tenant) error {
+	return r.create(ctx, tx, tenant)
+}
+
+func (r *TenantRepository) create(ctx context.Context, exec execer, tenant *domain.Tenant) error {
 	query := `
 		INSERT INTO tenants (id, name, document, plan, status, trial_until, trial_expires_at, max_users, seat_count, features, active,
 		                   payment_customer_id, payment_subscription_id, address, address_number, province, postal_code, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 	`
 
-	_, err := r.db.Pool.Exec(ctx, query,
+	_, err := exec.Exec(ctx, query,
 		tenant.ID,
 		tenant.Name,
 		tenant.Document,

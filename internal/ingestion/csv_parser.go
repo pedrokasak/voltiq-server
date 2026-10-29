@@ -1,14 +1,9 @@
 package ingestion
 
 import (
-	"encoding/csv"
 	"fmt"
 	"io"
 	"time"
-
-	"github.com/google/uuid"
-
-	"github.com/voltiq/server/internal/domain"
 )
 
 // ReadingType represents the type of reading being imported
@@ -19,16 +14,29 @@ const (
 	ReadingTypeUC          ReadingType = "UC"
 )
 
-// CSVParser parses CSV files for meter readings
-type CSVParser struct{}
+// Kind returns the schema kind of the reading type.
+func (t ReadingType) Kind() string {
+	if t == ReadingTypeUC {
+		return KindUCReadings
+	}
+	return KindTransformerReadings
+}
+
+// CSVParser parses meter reading files (CSV or XLSX)
+type CSVParser struct {
+	now func() time.Time
+}
 
 // NewCSVParser creates a new CSVParser
 func NewCSVParser() *CSVParser {
-	return &CSVParser{}
+	return &CSVParser{now: time.Now}
 }
 
-// ParsedReading represents a parsed meter reading
+// ParsedReading represents a parsed meter reading. TransformerID and UCID
+// hold the reference written in the file (code or UUID); the import use
+// case resolves them to database IDs.
 type ParsedReading struct {
+	Line          int
 	TransformerID string
 	UCID          string
 	ReadingAt     time.Time
@@ -41,230 +49,134 @@ type ParsedReading struct {
 type ParseResult struct {
 	Success []*ParsedReading
 	Errors  []ParseError
+	Mapping MappingReport
+	Table   *Table
 }
 
 // ParseError represents a parsing error
 type ParseError struct {
-	Line    int
-	Message string
+	Line    int    `json:"line"`
+	Column  string `json:"column,omitempty"`
+	Value   string `json:"value,omitempty"`
+	Message string `json:"message"`
 }
 
-// Parse reads and parses a CSV file
+// Parse reads and parses a CSV stream (kept for callers that have a reader).
 func (p *CSVParser) Parse(reader io.Reader, readingType ReadingType) (*ParseResult, error) {
-	csvReader := csv.NewReader(reader)
-	csvReader.Comma = ';'
-	csvReader.TrimLeadingSpace = true
-
-	header, err := csvReader.Read()
+	content, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read CSV header: %w", err)
+		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
+	return p.ParseFile(content, "upload.csv", readingType, nil)
+}
 
-	columnIndex := make(map[string]int)
-	for i, col := range header {
-		columnIndex[col] = i
+// ParseFile reads a CSV or XLSX file and parses its readings. explicit maps
+// schema fields to file headers chosen by the user.
+func (p *CSVParser) ParseFile(content []byte, filename string, readingType ReadingType, explicit map[string]string) (*ParseResult, error) {
+	table, err := ReadTable(content, filename)
+	if err != nil {
+		return nil, err
 	}
+	return p.ParseTable(table, readingType, explicit)
+}
 
+// ParseTable validates and converts the rows of a table (RF02.2: colunas
+// obrigatorias, tipos e valores negativos; RF02.3: erros linha a linha).
+func (p *CSVParser) ParseTable(table *Table, readingType ReadingType, explicit map[string]string) (*ParseResult, error) {
+	schema, _ := SchemaFor(readingType.Kind())
+	mapping, report := schema.ResolveMapping(table.Headers, explicit)
 	result := &ParseResult{
-		Success: make([]*ParsedReading, 0),
+		Success: make([]*ParsedReading, 0, len(table.Rows)),
 		Errors:  make([]ParseError, 0),
+		Mapping: report,
+		Table:   table,
+	}
+	if err := report.MissingError(); err != nil {
+		return result, err
 	}
 
-	lineNum := 1
-	for {
-		lineNum++
-		record, err := csvReader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			result.Errors = append(result.Errors, ParseError{
-				Line:    lineNum,
-				Message: fmt.Sprintf("failed to read line: %v", err),
-			})
+	maxFuture := p.now().Add(48 * time.Hour)
+	for i, row := range table.Rows {
+		line := table.FirstDataLine + i
+		if nonEmpty(row) == 0 {
 			continue
 		}
-
-		reading, parseErr := p.parseRecord(record, columnIndex, readingType, lineNum)
-		if parseErr != nil {
-			result.Errors = append(result.Errors, ParseError{
-				Line:    lineNum,
-				Message: parseErr.Error(),
-			})
+		reading, perr := p.parseRow(row, mapping, readingType, maxFuture)
+		if perr != nil {
+			perr.Line = line
+			result.Errors = append(result.Errors, *perr)
 			continue
 		}
-
+		reading.Line = line
 		result.Success = append(result.Success, reading)
 	}
 
 	return result, nil
 }
 
-func (p *CSVParser) parseRecord(record []string, columnIndex map[string]int, readingType ReadingType, lineNum int) (*ParsedReading, error) {
-	switch readingType {
-	case ReadingTypeTransformer:
-		return p.parseTransformerRecord(record, columnIndex, lineNum)
-	case ReadingTypeUC:
-		return p.parseUCRecord(record, columnIndex, lineNum)
-	default:
-		return nil, fmt.Errorf("unknown reading type: %s", readingType)
-	}
-}
+func (p *CSVParser) parseRow(row []string, m Mapping, readingType ReadingType, maxFuture time.Time) (*ParsedReading, *ParseError) {
+	reading := &ParsedReading{}
 
-func (p *CSVParser) parseTransformerRecord(record []string, columnIndex map[string]int, lineNum int) (*ParsedReading, error) {
-	requiredCols := []string{"transformer_id", "reading_at", "energy_kwh"}
-	for _, col := range requiredCols {
-		if _, exists := columnIndex[col]; !exists {
-			return nil, fmt.Errorf("missing required column: %s", col)
-		}
+	refField, energyField := "transformer", "energy_kwh"
+	if readingType == ReadingTypeUC {
+		refField, energyField = "uc", "consumption_kwh"
 	}
 
-	transformerID := record[columnIndex["transformer_id"]]
-	if transformerID == "" {
-		return nil, fmt.Errorf("empty transformer_id")
+	ref := m.Cell(row, refField)
+	if ref == "" {
+		return nil, &ParseError{Column: refField, Message: "identificador vazio"}
+	}
+	if readingType == ReadingTypeUC {
+		reading.UCID = ref
+	} else {
+		reading.TransformerID = ref
 	}
 
-	readingAt, err := p.parseTimestamp(record[columnIndex["reading_at"]])
+	rawAt := m.Cell(row, "reading_at")
+	at, err := ParseTimestamp(rawAt)
 	if err != nil {
-		return nil, fmt.Errorf("invalid reading_at format: %w", err)
+		return nil, &ParseError{Column: "reading_at", Value: rawAt, Message: err.Error()}
 	}
+	if at.After(maxFuture) {
+		return nil, &ParseError{Column: "reading_at", Value: rawAt, Message: "data no futuro"}
+	}
+	reading.ReadingAt = at
 
-	energyKWh, err := p.parseFloat(record[columnIndex["energy_kwh"]])
+	rawEnergy := m.Cell(row, energyField)
+	energy, err := ParseNumber(rawEnergy)
 	if err != nil {
-		return nil, fmt.Errorf("invalid energy_kwh: %w", err)
+		return nil, &ParseError{Column: energyField, Value: rawEnergy, Message: err.Error()}
 	}
-
-	reading := &ParsedReading{
-		TransformerID: transformerID,
-		ReadingAt:     readingAt,
-		EnergyKWh:     energyKWh,
+	if energy < 0 {
+		return nil, &ParseError{Column: energyField, Value: rawEnergy, Message: "valor negativo não é permitido"}
 	}
+	reading.EnergyKWh = energy
 
-	if idx, exists := columnIndex["demand_kw"]; exists && record[idx] != "" {
-		demand, err := p.parseFloat(record[idx])
-		if err != nil {
-			return nil, fmt.Errorf("invalid demand_kw at line %d: %w", lineNum, err)
+	if readingType == ReadingTypeTransformer {
+		if raw := m.Cell(row, "demand_kw"); raw != "" {
+			v, err := ParseNumber(raw)
+			if err != nil {
+				return nil, &ParseError{Column: "demand_kw", Value: raw, Message: err.Error()}
+			}
+			if v < 0 {
+				return nil, &ParseError{Column: "demand_kw", Value: raw, Message: "valor negativo não é permitido"}
+			}
+			reading.DemandKW = &v
 		}
-		reading.DemandKW = &demand
-	}
-
-	if idx, exists := columnIndex["power_factor"]; exists && record[idx] != "" {
-		pf, err := p.parseFloat(record[idx])
-		if err != nil {
-			return nil, fmt.Errorf("invalid power_factor at line %d: %w", lineNum, err)
+		if raw := m.Cell(row, "power_factor"); raw != "" {
+			v, err := ParseNumber(raw)
+			if err != nil {
+				return nil, &ParseError{Column: "power_factor", Value: raw, Message: err.Error()}
+			}
+			if v > 1 && v <= 100 { // informado em %
+				v = v / 100
+			}
+			if v <= 0 || v > 1 {
+				return nil, &ParseError{Column: "power_factor", Value: raw, Message: "fator de potência deve estar entre 0 e 1"}
+			}
+			reading.PowerFactor = &v
 		}
-		reading.PowerFactor = &pf
 	}
 
 	return reading, nil
-}
-
-func (p *CSVParser) parseUCRecord(record []string, columnIndex map[string]int, lineNum int) (*ParsedReading, error) {
-	requiredCols := []string{"uc_id", "reading_at", "consumption_kwh"}
-	for _, col := range requiredCols {
-		if _, exists := columnIndex[col]; !exists {
-			return nil, fmt.Errorf("missing required column: %s", col)
-		}
-	}
-
-	ucID := record[columnIndex["uc_id"]]
-	if ucID == "" {
-		return nil, fmt.Errorf("empty uc_id")
-	}
-
-	readingAt, err := p.parseTimestamp(record[columnIndex["reading_at"]])
-	if err != nil {
-		return nil, fmt.Errorf("invalid reading_at format: %w", err)
-	}
-
-	consumptionKWh, err := p.parseFloat(record[columnIndex["consumption_kwh"]])
-	if err != nil {
-		return nil, fmt.Errorf("invalid consumption_kwh: %w", err)
-	}
-
-	return &ParsedReading{
-		UCID:      ucID,
-		ReadingAt: readingAt,
-		EnergyKWh: consumptionKWh,
-	}, nil
-}
-
-func (p *CSVParser) parseTimestamp(value string) (time.Time, error) {
-	formats := []string{
-		"2006-01-02 15:04:05",
-		"2006-01-02T15:04:05Z07:00",
-		"2006-01-02T15:04:05",
-		"02/01/2006 15:04:05",
-		"02/01/2006",
-	}
-
-	for _, format := range formats {
-		if t, err := time.Parse(format, value); err == nil {
-			return t, nil
-		}
-	}
-
-	return time.Time{}, fmt.Errorf("unable to parse timestamp: %s", value)
-}
-
-func (p *CSVParser) parseFloat(value string) (float64, error) {
-	if value == "" {
-		return 0, nil
-	}
-
-	var result float64
-	_, err := fmt.Sscanf(value, "%f", &result)
-	if err != nil {
-		return 0, err
-	}
-
-	return result, nil
-}
-
-// ToTransformerReadings converts parsed readings to domain TransformerReading entities
-func (p *CSVParser) ToTransformerReadings(parsed []*ParsedReading, tenantID domain.UUID, importID *domain.UUID) []*domain.TransformerReading {
-	readings := make([]*domain.TransformerReading, 0, len(parsed))
-
-	for _, pr := range parsed {
-		if pr.TransformerID == "" {
-			continue
-		}
-
-		readings = append(readings, &domain.TransformerReading{
-			ID:            domain.UUID(uuid.New().String()),
-			TenantID:      tenantID,
-			TransformerID: domain.UUID(pr.TransformerID),
-			ReadingAt:     pr.ReadingAt,
-			EnergyKWh:     pr.EnergyKWh,
-			DemandKW:      pr.DemandKW,
-			PowerFactor:   pr.PowerFactor,
-			ImportID:      importID,
-			CreatedAt:     time.Now(),
-		})
-	}
-
-	return readings
-}
-
-// ToUCReadings converts parsed readings to domain UCReading entities
-func (p *CSVParser) ToUCReadings(parsed []*ParsedReading, tenantID domain.UUID, importID *domain.UUID) []*domain.UCReading {
-	readings := make([]*domain.UCReading, 0, len(parsed))
-
-	for _, pr := range parsed {
-		if pr.UCID == "" {
-			continue
-		}
-
-		readings = append(readings, &domain.UCReading{
-			ID:             domain.UUID(uuid.New().String()),
-			TenantID:       tenantID,
-			UCID:           domain.UUID(pr.UCID),
-			ReadingAt:      pr.ReadingAt,
-			ConsumptionKWh: pr.EnergyKWh,
-			ImportID:       importID,
-			CreatedAt:      time.Now(),
-		})
-	}
-
-	return readings
 }
