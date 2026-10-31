@@ -2,7 +2,7 @@ package jobs
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/voltiq/server/internal/domain"
@@ -36,15 +36,15 @@ func (j *TrialExpirationJob) Run(ctx context.Context) error {
 		tenant.UpdatedAt = now
 
 		if err := j.tenantRepo.Update(ctx, tenant); err != nil {
-			log.Printf("Erro ao suspender tenant %s: %v", tenant.ID, err)
+			slog.Error("trial suspension failed", "tenant_id", tenant.ID, "error", err)
 			continue
 		}
 
 		// Log de auditoria
-		log.Printf("AUDIT: tenant %s (%s) status alterado %s -> %s (trial expirado em %s)",
-			tenant.ID, tenant.Name, previousStatus, tenant.Status, tenant.TrialExpiresAt)
+		slog.Info("tenant suspended: trial expired", "tenant_id", tenant.ID, "from_status", previousStatus,
+			"to_status", tenant.Status, "trial_expires_at", tenant.TrialExpiresAt)
 	}
 
-	log.Printf("TrialExpirationJob concluído: %d tenants suspensos", len(tenants))
+	slog.Info("trial expiration done", "suspended", len(tenants))
 	return nil
 }

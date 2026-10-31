@@ -3,9 +3,14 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,11 +28,16 @@ func NewAtomicTransactionManager(pool *pgxpool.Pool) *AtomicTransactionManager {
 
 // WithTransaction executes a function within a database transaction
 func (m *AtomicTransactionManager) WithTransaction(ctx context.Context, fn func(tx pgx.Tx) error) error {
-	tx, err := m.pool.BeginTx(ctx, pgx.TxOptions{
-		IsoLevel: pgx.Serializable, // Highest isolation level to prevent race conditions
-	})
+	return m.WithTransactionIso(ctx, pgx.ReadCommitted, fn)
+}
+
+// WithTransactionIso executes fn in a transaction with the given isolation.
+// READ COMMITTED (padrao) serializa atualizacoes da mesma linha pelo lock
+// de linha; use Serializable apenas com WithTransactionAndRetry.
+func (m *AtomicTransactionManager) WithTransactionIso(ctx context.Context, iso pgx.TxIsoLevel, fn func(tx pgx.Tx) error) error {
+	tx, err := m.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: iso})
 	if err != nil {
-		return errors.New("failed to begin transaction")
+		return fmt.Errorf("begin transaction: %w", err)
 	}
 
 	defer func() {
@@ -39,13 +49,13 @@ func (m *AtomicTransactionManager) WithTransaction(ctx context.Context, fn func(
 
 	if err := fn(tx); err != nil {
 		if rbErr := tx.Rollback(ctx); rbErr != nil {
-			return errors.New("failed to rollback transaction")
+			return errors.Join(err, fmt.Errorf("rollback: %w", rbErr))
 		}
 		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return errors.New("failed to commit transaction")
+		return fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return nil
@@ -81,45 +91,18 @@ func (m *AtomicTransactionManager) WithTransactionAndRetry(ctx context.Context, 
 	return lastErr
 }
 
-// isRetryableError checks if an error is retryable
+// isRetryableError reports serialization failures (40001) and deadlocks
+// (40P01): the whole transaction was rolled back and can run again.
 func isRetryableError(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "40001" || pgErr.Code == "40P01"
+	}
 	if err == nil {
 		return false
 	}
-
-	errStr := err.Error()
-
-	// PostgreSQL deadlock detected
-	if contains(errStr, "deadlock detected") {
-		return true
-	}
-
-	// Serialization failure
-	if contains(errStr, "serialization failure") {
-		return true
-	}
-
-	// Connection issues
-	if contains(errStr, "connection reset") ||
-		contains(errStr, "connection refused") ||
-		contains(errStr, "broken pipe") {
-		return true
-	}
-
-	return false
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsAt(s, substr))
-}
-
-func containsAt(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	msg := err.Error()
+	return strings.Contains(msg, "deadlock detected") || strings.Contains(msg, "could not serialize access")
 }
 
 // OptimisticLock helps prevent lost updates
@@ -154,27 +137,24 @@ func (ol *OptimisticLock) UpdateWithVersion(ctx context.Context, tx pgx.Tx, id s
 		return err
 	}
 
-	// Build update query with version check
+	// Build update query with version check (ordem estavel das colunas)
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
 	setClauses := make([]string, 0, len(data)+1)
 	args := make([]any, 0, len(data)+2)
-	argIndex := 1
-
-	for key, value := range data {
-		setClauses = append(setClauses, key+" = $"+string(rune(argIndex)))
-		args = append(args, value)
-		argIndex++
+	for _, key := range keys {
+		args = append(args, data[key])
+		setClauses = append(setClauses, key+" = $"+strconv.Itoa(len(args)))
 	}
-
-	// Increment version
 	setClauses = append(setClauses, ol.versionColumn+" = "+ol.versionColumn+" + 1")
-	args = append(args, currentVersion+1)
-	args = append(args, id)
-	args = append(args, currentVersion)
+	args = append(args, id, currentVersion)
 
-	query = "UPDATE " + ol.tableName + " SET " +
-		joinStrings(setClauses, ", ") +
-		" WHERE " + ol.idColumn + " = $" + string(rune(argIndex)) +
-		" AND " + ol.versionColumn + " = $" + string(rune(argIndex+1))
+	query = "UPDATE " + ol.tableName + " SET " + strings.Join(setClauses, ", ") +
+		" WHERE " + ol.idColumn + " = $" + strconv.Itoa(len(args)-1) +
+		" AND " + ol.versionColumn + " = $" + strconv.Itoa(len(args))
 
 	result, err := tx.Exec(ctx, query, args...)
 	if err != nil {
@@ -186,17 +166,6 @@ func (ol *OptimisticLock) UpdateWithVersion(ctx context.Context, tx pgx.Tx, id s
 	}
 
 	return nil
-}
-
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	result := strs[0]
-	for _, s := range strs[1:] {
-		result += sep + s
-	}
-	return result
 }
 
 // PessimisticLock provides row-level locking
@@ -219,12 +188,12 @@ func (pl *PessimisticLock) LockRowsForUpdate(ctx context.Context, tx pgx.Tx, tab
 	placeholders := make([]string, len(ids))
 	args := make([]any, len(ids))
 	for i, id := range ids {
-		placeholders[i] = "$" + string(rune(i+1))
+		placeholders[i] = "$" + strconv.Itoa(i+1)
 		args[i] = id
 	}
 
 	query := "SELECT 1 FROM " + tableName + " WHERE id IN (" +
-		joinStrings(placeholders, ", ") +
+		strings.Join(placeholders, ", ") +
 		") FOR UPDATE NOWAIT"
 
 	_, err := tx.Exec(ctx, query, args...)

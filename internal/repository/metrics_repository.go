@@ -164,150 +164,101 @@ func (r *MetricsRepository) GetLatestMetrics(ctx context.Context) (*DailyBilling
 
 // DailyBillingMetrics represents daily aggregated billing metrics
 type DailyBillingMetrics struct {
-	Date                  time.Time
-	MRRCents              int64
-	ARRCents              int64
-	ActiveSubscriptions   int
-	ChurnedSubscriptions  int
-	NewSubscriptions      int
-	ExpansionCents        int64
-	ContractionCents      int64
-	TrialConversions      int
-	TrialExpired          int
-	ByPlan                map[string]PlanMetrics
+	Date                 time.Time              `json:"date"`
+	MRRCents             int64                  `json:"mrr_cents"`
+	ARRCents             int64                  `json:"arr_cents"`
+	ActiveSubscriptions  int                    `json:"active_subscriptions"`
+	ChurnedSubscriptions int                    `json:"churned_subscriptions"`
+	NewSubscriptions     int                    `json:"new_subscriptions"`
+	ExpansionCents       int64                  `json:"expansion_cents"`
+	ContractionCents     int64                  `json:"contraction_cents"`
+	TrialConversions     int                    `json:"trial_conversions"`
+	TrialExpired         int                    `json:"trial_expired"`
+	ByPlan               map[string]PlanMetrics `json:"by_plan"`
 }
 
 // PlanMetrics represents metrics broken down by plan
 type PlanMetrics struct {
-	Count        int   `json:"count"`
-	MRRCents     int64 `json:"mrr_cents"`
-	Subscriptions int  `json:"subscriptions"`
+	Count         int   `json:"count"`
+	MRRCents      int64 `json:"mrr_cents"`
+	Subscriptions int   `json:"subscriptions"`
 }
 
-// ComputeDailyMetrics calculates billing metrics for a given date
+// ComputeDailyMetrics calculates billing metrics for a given date.
+// MRR conta tenants ACTIVE pelo preco do plano (inclusive ativacoes manuais
+// do super admin); churn e novas assinaturas usam cancelled_at/activated_at
+// no mes corrente; expansao/contracao vem dos creditos de proration do dia.
 func (r *MetricsRepository) ComputeDailyMetrics(ctx context.Context, date time.Time) (*DailyBillingMetrics, error) {
-	// Get all active tenants with their subscriptions
-	query := `
-		SELECT t.id, t.plan, t.status, t.payment_subscription_id,
-		       t.max_users, t.seat_count, t.created_at, t.updated_at
-		FROM tenants t
-		WHERE t.deleted_at IS NULL
-		AND t.status IN ('TRIAL', 'ACTIVE', 'SUSPENDED', 'PENDING_PAYMENT')
-	`
+	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+	dayEnd := dayStart.Add(24 * time.Hour)
+	monthStart := time.Date(date.Year(), date.Month(), 1, 0, 0, 0, 0, time.UTC)
 
-	rows, err := r.db.Pool.Query(ctx, query)
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT plan, status, activated_at, cancelled_at, COALESCE(trial_expires_at, trial_until)
+		FROM tenants`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	type tenantSub struct {
-		id                    string
-		plan                  string
-		status                string
-		paymentSubscriptionID *string
-		maxUsers              int
-		seatCount             int
-		createdAt             time.Time
-		updatedAt             time.Time
+	m := &DailyBillingMetrics{Date: dayStart, ByPlan: map[string]PlanMetrics{}}
+	in := func(t *time.Time, from, to time.Time) bool {
+		return t != nil && !t.Before(from) && t.Before(to)
 	}
-
-	var tenants []tenantSub
 	for rows.Next() {
-		var t tenantSub
-		var paymentSubID pgtype.Text
-
-		err := rows.Scan(
-			&t.id,
-			&t.plan,
-			&t.status,
-			&paymentSubID,
-			&t.maxUsers,
-			&t.seatCount,
-			&t.createdAt,
-			&t.updatedAt,
-		)
-		if err != nil {
+		var plan, status string
+		var activatedAt, cancelledAt, trialEnd *time.Time
+		if err := rows.Scan(&plan, &status, &activatedAt, &cancelledAt, &trialEnd); err != nil {
 			return nil, err
 		}
-
-		if paymentSubID.Valid {
-			t.paymentSubscriptionID = &paymentSubID.String
-		}
-
-		tenants = append(tenants, t)
-	}
-
-	// Plan prices in cents
-	planPrices := map[string]int64{
-		"starter":    9900,
-		"pro":        29900,
-		"enterprise": 99900,
-	}
-
-	// Calculate metrics
-	var mrrCents int64
-	var activeSubs int
-	var churnedSubs int
-	var newSubs int
-	var trialConversions int
-	var trialExpired int
-	byPlan := make(map[string]PlanMetrics)
-
-	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
-	dayEnd := dayStart.Add(24 * time.Hour)
-	monthStart := time.Date(date.Year(), date.Month(), 1, 0, 0, 0, 0, time.UTC)
-
-	for _, t := range tenants {
-		planPrice := planPrices[t.plan]
-
-		if t.status == "ACTIVE" && t.paymentSubscriptionID != nil {
-			activeSubs++
-			mrrCents += planPrice
-
-			// By plan breakdown
-			bp := byPlan[t.plan]
+		if status == "ACTIVE" {
+			price := PlanPriceCents(plan)
+			m.ActiveSubscriptions++
+			m.MRRCents += price
+			bp := m.ByPlan[plan]
 			bp.Count++
-			bp.MRRCents += planPrice
+			bp.MRRCents += price
 			bp.Subscriptions++
-			byPlan[t.plan] = bp
+			m.ByPlan[plan] = bp
 		}
-
-		if t.status == "CANCELLED" && t.updatedAt.After(monthStart) && t.updatedAt.Before(dayEnd) {
-			churnedSubs++
+		if in(cancelledAt, monthStart, dayEnd) {
+			m.ChurnedSubscriptions++
 		}
-
-		if t.status == "ACTIVE" && t.createdAt.After(monthStart) && t.createdAt.Before(dayEnd) {
-			newSubs++
+		if in(activatedAt, monthStart, dayEnd) {
+			m.NewSubscriptions++
 		}
-
-		if t.status == "ACTIVE" && t.paymentSubscriptionID != nil {
-			// Check if was TRIAL last month
-			// This is simplified - in reality would check historical data
+		if in(activatedAt, dayStart, dayEnd) && trialEnd != nil {
+			m.TrialConversions++
 		}
-
-		if t.status != "TRIAL" && t.paymentSubscriptionID != nil && t.createdAt.After(monthStart) && t.createdAt.Before(dayEnd) {
-			// Could be trial conversion
+		if in(trialEnd, dayStart, dayEnd) && status != "ACTIVE" {
+			m.TrialExpired++
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	m.ARRCents = m.MRRCents * 12
 
-	// ARR = MRR * 12
-	arrCents := mrrCents * 12
+	err = r.db.Pool.QueryRow(ctx, `SELECT
+			COALESCE(SUM(-amount_cents) FILTER (WHERE reason = 'upgrade'), 0),
+			COALESCE(SUM(amount_cents) FILTER (WHERE reason = 'downgrade'), 0)
+		FROM billing_proration_credits WHERE created_at >= $1 AND created_at < $2`, dayStart, dayEnd).
+		Scan(&m.ExpansionCents, &m.ContractionCents)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
 
-	// TODO: Calculate expansion/contraction from plan changes
-	// This would require historical plan data
-
-	return &DailyBillingMetrics{
-		Date:                  dayStart,
-		MRRCents:              mrrCents,
-		ARRCents:              arrCents,
-		ActiveSubscriptions:   activeSubs,
-		ChurnedSubscriptions:  churnedSubs,
-		NewSubscriptions:      newSubs,
-		TrialConversions:      trialConversions,
-		TrialExpired:          trialExpired,
-		ByPlan:                byPlan,
-		ExpansionCents:        0,
-		ContractionCents:      0,
-	}, nil
+// PlanPriceCents returns the monthly price of a plan in cents.
+func PlanPriceCents(plan string) int64 {
+	switch plan {
+	case "starter":
+		return 9900
+	case "pro":
+		return 29900
+	case "enterprise":
+		return 99900
+	}
+	return 0
 }

@@ -34,19 +34,19 @@ type PaymentProvider interface {
 
 // Customer represents a customer in the payment gateway
 type Customer struct {
-	ID           string
-	ExternalID   string // Our tenant/user ID
-	Name         string
-	Email        string
-	Document     string // CPF/CNPJ
-	Phone        string
-	Address      string
-	AddressNumber string
-	Province     string
-	PostalCode   string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	Metadata     map[string]string
+	ID            string            `json:"id"`
+	ExternalID    string            `json:"external_id"` // Our tenant/user ID
+	Name          string            `json:"name"`
+	Email         string            `json:"email"`
+	Document      string            `json:"document"` // CPF/CNPJ
+	Phone         string            `json:"phone"`
+	Address       string            `json:"address"`
+	AddressNumber string            `json:"address_number"`
+	Province      string            `json:"province"`
+	PostalCode    string            `json:"postal_code"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
+	Metadata      map[string]string `json:"metadata"`
 }
 
 // CreateCustomerInput input for creating a customer
@@ -58,7 +58,7 @@ type CreateCustomerInput struct {
 	Phone         string
 	Address       string
 	AddressNumber string
-	Province     string
+	Province      string
 	PostalCode    string
 	Metadata      map[string]string
 }
@@ -77,21 +77,21 @@ type UpdateCustomerInput struct {
 
 // Subscription represents a recurring subscription
 type Subscription struct {
-	ID              string
-	CustomerID      string
-	ExternalID      string // Our plan/tenant reference
-	Status          SubscriptionStatus
-	BillingType     BillingType
-	Cycle           BillingCycle
-	Value           float64
-	Description     string
-	NextDueDate     time.Time
-	CurrentPeriodStart time.Time
-	CurrentPeriodEnd   time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	CancelledAt     *time.Time
-	Metadata        map[string]string
+	ID                 string             `json:"id"`
+	CustomerID         string             `json:"customer_id"`
+	ExternalID         string             `json:"external_id"` // Our plan/tenant reference
+	Status             SubscriptionStatus `json:"status"`
+	BillingType        BillingType        `json:"billing_type"`
+	Cycle              BillingCycle       `json:"cycle"`
+	Value              float64            `json:"value"`
+	Description        string             `json:"description"`
+	NextDueDate        time.Time          `json:"next_due_date"`
+	CurrentPeriodStart time.Time          `json:"current_period_start"`
+	CurrentPeriodEnd   time.Time          `json:"current_period_end"`
+	CreatedAt          time.Time          `json:"created_at"`
+	UpdatedAt          time.Time          `json:"updated_at"`
+	CancelledAt        *time.Time         `json:"cancelled_at"`
+	Metadata           map[string]string  `json:"metadata"`
 }
 
 type SubscriptionStatus string
@@ -108,10 +108,10 @@ const (
 type BillingType string
 
 const (
-	BillingTypeBoleto      BillingType = "BOLETO"
-	BillingTypeCreditCard  BillingType = "CREDIT_CARD"
-	BillingTypePIX         BillingType = "PIX"
-	BillingTypeUndefined   BillingType = "UNDEFINED"
+	BillingTypeBoleto     BillingType = "BOLETO"
+	BillingTypeCreditCard BillingType = "CREDIT_CARD"
+	BillingTypePIX        BillingType = "PIX"
+	BillingTypeUndefined  BillingType = "UNDEFINED"
 )
 
 type BillingCycle string
@@ -158,21 +158,21 @@ type SubscriptionFilter struct {
 
 // Payment represents a payment transaction
 type Payment struct {
-	ID              string
-	SubscriptionID  *string
-	CustomerID      string
-	Value           float64
-	Status          PaymentStatus
-	BillingType     BillingType
-	DueDate         time.Time
-	PaidAt          *time.Time
-	InvoiceURL      string
-	BankSlipURL     string
-	PIXQRCode       string
-	PIXCode         string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	Metadata        map[string]string
+	ID             string            `json:"id"`
+	SubscriptionID *string           `json:"subscription_id"`
+	CustomerID     string            `json:"customer_id"`
+	Value          float64           `json:"value"`
+	Status         PaymentStatus     `json:"status"`
+	BillingType    BillingType       `json:"billing_type"`
+	DueDate        time.Time         `json:"due_date"`
+	PaidAt         *time.Time        `json:"paid_at"`
+	InvoiceURL     string            `json:"invoice_url"`
+	BankSlipURL    string            `json:"bank_slip_url"`
+	PIXQRCode      string            `json:"pix_qr_code"`
+	PIXCode        string            `json:"pix_code"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+	Metadata       map[string]string `json:"metadata"`
 }
 
 type PaymentStatus string
@@ -188,13 +188,13 @@ const (
 
 // PaymentFilter for listing payments
 type PaymentFilter struct {
-	CustomerID    string
+	CustomerID     string
 	SubscriptionID *string
-	Status        *PaymentStatus
-	DateFrom      *time.Time
-	DateTo        *time.Time
-	Limit         int
-	Offset        int
+	Status         *PaymentStatus
+	DateFrom       *time.Time
+	DateTo         *time.Time
+	Limit          int
+	Offset         int
 }
 
 // RefundInput input for refunding a payment
@@ -205,55 +205,55 @@ type RefundInput struct {
 
 // CreatePaymentInput input for creating a standalone payment
 type CreatePaymentInput struct {
-	CustomerID       string
-	Value            float64
-	BillingType      BillingType
-	Description      string
-	DueDate          time.Time
+	CustomerID        string
+	Value             float64
+	BillingType       BillingType
+	Description       string
+	DueDate           time.Time
 	ExternalReference string
 }
 
 // Refund represents a refund operation
 type Refund struct {
-	ID          string
-	PaymentID   string
-	Value       float64
-	Status      RefundStatus
-	Description string
-	CreatedAt   time.Time
+	ID          string       `json:"id"`
+	PaymentID   string       `json:"payment_id"`
+	Value       float64      `json:"value"`
+	Status      RefundStatus `json:"status"`
+	Description string       `json:"description"`
+	CreatedAt   time.Time    `json:"created_at"`
 }
 
 type RefundStatus string
 
 const (
-	RefundStatusPending  RefundStatus = "PENDING"
-	RefundStatusApproved RefundStatus = "APPROVED"
-	RefundStatusRejected RefundStatus = "REJECTED"
+	RefundStatusPending   RefundStatus = "PENDING"
+	RefundStatusApproved  RefundStatus = "APPROVED"
+	RefundStatusRejected  RefundStatus = "REJECTED"
 	RefundStatusCompleted RefundStatus = "COMPLETED"
 )
 
 // WebhookEvent represents a webhook event from the payment gateway
 type WebhookEvent struct {
-	ID        string
-	Gateway   string
-	Type      WebhookEventType
-	Timestamp time.Time
-	Payload   map[string]any
-	Raw       []byte
+	ID        string           `json:"id"`
+	Gateway   string           `json:"gateway"`
+	Type      WebhookEventType `json:"type"`
+	Timestamp time.Time        `json:"timestamp"`
+	Payload   map[string]any   `json:"payload"`
+	Raw       []byte           `json:"raw"`
 }
 
 type WebhookEventType string
 
 const (
-	WebhookEventPaymentCreated    WebhookEventType = "PAYMENT_CREATED"
-	WebhookEventPaymentReceived   WebhookEventType = "PAYMENT_RECEIVED"
-	WebhookEventPaymentOverdue    WebhookEventType = "PAYMENT_OVERDUE"
-	WebhookEventPaymentRefunded   WebhookEventType = "PAYMENT_REFUNDED"
+	WebhookEventPaymentCreated      WebhookEventType = "PAYMENT_CREATED"
+	WebhookEventPaymentReceived     WebhookEventType = "PAYMENT_RECEIVED"
+	WebhookEventPaymentOverdue      WebhookEventType = "PAYMENT_OVERDUE"
+	WebhookEventPaymentRefunded     WebhookEventType = "PAYMENT_REFUNDED"
 	WebhookEventSubscriptionCreated WebhookEventType = "SUBSCRIPTION_CREATED"
 	WebhookEventSubscriptionUpdated WebhookEventType = "SUBSCRIPTION_UPDATED"
 	WebhookEventSubscriptionDeleted WebhookEventType = "SUBSCRIPTION_DELETED"
-	WebhookEventCustomerCreated   WebhookEventType = "CUSTOMER_CREATED"
-	WebhookEventCustomerUpdated   WebhookEventType = "CUSTOMER_UPDATED"
+	WebhookEventCustomerCreated     WebhookEventType = "CUSTOMER_CREATED"
+	WebhookEventCustomerUpdated     WebhookEventType = "CUSTOMER_UPDATED"
 )
 
 // MapToDomainTenantPlan maps our internal plan to payment provider plan
@@ -289,4 +289,16 @@ var PlanPrices = map[domain.TenantPlan]float64{
 	domain.TenantPlanStarter:    99.00,
 	domain.TenantPlanPro:        299.00,
 	domain.TenantPlanEnterprise: 999.00,
+}
+
+// PixQRCode is the PIX payment data of a charge.
+type PixQRCode struct {
+	QRCodeBase64 string `json:"qr_code_base64"`
+	PixCode      string `json:"pix_code"`
+	ExpiresAt    string `json:"expires_at"`
+}
+
+// PixProvider is implemented by providers that expose PIX QR codes.
+type PixProvider interface {
+	GetPixQRCode(ctx context.Context, paymentID string) (*PixQRCode, error)
 }

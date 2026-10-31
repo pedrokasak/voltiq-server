@@ -97,14 +97,14 @@ func (r *DunningRepository) GetPendingDunning(ctx context.Context, stage int, be
 
 // DunningPending represents a tenant pending dunning email
 type DunningPending struct {
-	TenantID             string
-	PaymentGatewayID     string
-	Stage                int
-	CreatedAt            time.Time
-	PaymentCustomerID    *string
+	TenantID              string
+	PaymentGatewayID      string
+	Stage                 int
+	CreatedAt             time.Time
+	PaymentCustomerID     *string
 	PaymentSubscriptionID *string
-	TenantEmail          *string
-	TenantName           *string
+	TenantEmail           *string
+	TenantName            *string
 }
 
 // GetDunningHistory retrieves dunning history for a tenant
@@ -157,11 +157,11 @@ func (r *DunningRepository) GetDunningHistory(ctx context.Context, tenantID stri
 
 // DunningEvent represents a dunning event record
 type DunningEvent struct {
-	ID                   string
-	TenantID             string
-	PaymentGatewayID     string
-	Stage                int
-	EmailSentAt          *time.Time
-	EmailTemplate        *string
-	CreatedAt            time.Time
+	ID               string     `json:"id"`
+	TenantID         string     `json:"tenant_id"`
+	PaymentGatewayID string     `json:"payment_gateway_id"`
+	Stage            int        `json:"stage"`
+	EmailSentAt      *time.Time `json:"email_sent_at"`
+	EmailTemplate    *string    `json:"email_template"`
+	CreatedAt        time.Time  `json:"created_at"`
 }

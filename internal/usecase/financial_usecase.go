@@ -9,29 +9,29 @@ import (
 
 // FinancialRow represents a row in the financial table
 type FinancialRow struct {
-	TransformerID         string  `json:"transformer_id"`
-	Code                  string  `json:"code"`
-	LossPct               float64 `json:"loss_pct"`
-	LossKWh               float64 `json:"loss_kwh"`
-	LossCostBRL           float64 `json:"loss_cost_brl"`
-	EnergyInjectedKWh     float64 `json:"energy_injected_kwh"`
-	EnergyBilledKWh       float64 `json:"energy_billed_kwh"`
-	RevenueBRL            float64 `json:"revenue_brl"`
-	PotentialSavingsBRL   float64 `json:"potential_savings_brl"`
+	TransformerID       string  `json:"transformer_id"`
+	Code                string  `json:"code"`
+	LossPct             float64 `json:"loss_pct"`
+	LossKWh             float64 `json:"loss_kwh"`
+	LossCostBRL         float64 `json:"loss_cost_brl"`
+	EnergyInjectedKWh   float64 `json:"energy_injected_kwh"`
+	EnergyBilledKWh     float64 `json:"energy_billed_kwh"`
+	RevenueBRL          float64 `json:"revenue_brl"`
+	PotentialSavingsBRL float64 `json:"potential_savings_brl"`
 }
 
 // FinancialTableData represents the complete financial table response
 type FinancialTableData struct {
-	TariffPerMWh    float64      `json:"tariff_per_mwh"`
-	TotalLossCostBRL float64     `json:"total_loss_cost_brl"`
-	TotalRevenueBRL  float64      `json:"total_revenue_brl"`
-	TotalSavingsBRL  float64      `json:"total_savings_brl"`
-	Rows            []FinancialRow `json:"rows"`
+	TariffPerMWh     float64        `json:"tariff_per_mwh"`
+	TotalLossCostBRL float64        `json:"total_loss_cost_brl"`
+	TotalRevenueBRL  float64        `json:"total_revenue_brl"`
+	TotalSavingsBRL  float64        `json:"total_savings_brl"`
+	Rows             []FinancialRow `json:"rows"`
 }
 
 // FinancialUseCase handles financial data queries
 type FinancialUseCase struct {
-	balanceRepo   *repository.BalanceRepository
+	balanceRepo     *repository.BalanceRepository
 	transformerRepo *repository.TransformerRepository
 }
 
@@ -41,7 +41,7 @@ func NewFinancialUseCase(
 	transformerRepo *repository.TransformerRepository,
 ) *FinancialUseCase {
 	return &FinancialUseCase{
-		balanceRepo:   balanceRepo,
+		balanceRepo:     balanceRepo,
 		transformerRepo: transformerRepo,
 	}
 }
@@ -98,15 +98,15 @@ func (uc *FinancialUseCase) GetFinancialTable(ctx context.Context, tenantID doma
 		potentialSavings := (excessLossKWh / 1000.0) * tariffPerMWh
 
 		rows = append(rows, FinancialRow{
-			TransformerID:         string(latestBalance.TransformerID),
-			Code:                  t.Code,
-			LossPct:              latestBalance.LossPct,
-			LossKWh:              latestBalance.LossKWh,
-			LossCostBRL:          lossCost,
-			EnergyInjectedKWh:    latestBalance.EnergyInjectedKWh,
-			EnergyBilledKWh:      latestBalance.TotalConsumptionKWh,
-			RevenueBRL:           revenue,
-			PotentialSavingsBRL:  potentialSavings,
+			TransformerID:       string(latestBalance.TransformerID),
+			Code:                t.Code,
+			LossPct:             latestBalance.LossPct,
+			LossKWh:             latestBalance.LossKWh,
+			LossCostBRL:         lossCost,
+			EnergyInjectedKWh:   latestBalance.EnergyInjectedKWh,
+			EnergyBilledKWh:     latestBalance.TotalConsumptionKWh,
+			RevenueBRL:          revenue,
+			PotentialSavingsBRL: potentialSavings,
 		})
 
 		totalLossCost += lossCost
@@ -115,7 +115,7 @@ func (uc *FinancialUseCase) GetFinancialTable(ctx context.Context, tenantID doma
 	}
 
 	return &FinancialTableData{
-		TariffPerMWh:    tariffPerMWh,
+		TariffPerMWh:     tariffPerMWh,
 		TotalLossCostBRL: totalLossCost,
 		TotalRevenueBRL:  totalRevenue,
 		TotalSavingsBRL:  totalSavings,

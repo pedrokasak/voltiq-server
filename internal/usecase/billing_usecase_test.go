@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/voltiq/server/internal/email"
 	"github.com/voltiq/server/internal/payment"
 	"github.com/voltiq/server/internal/repository"
@@ -66,17 +65,17 @@ func TestBillingUseCase_SendDunningEmail(t *testing.T) {
 	// Create test pending dunning
 	pending := &repository.DunningPending{
 		TenantID:              "test-tenant-id",
-		PaymentGatewayID:     "sub_test123",
-		Stage:                1,
-		TenantEmail:          stringPtr("test@example.com"),
-		TenantName:           stringPtr("Test Tenant"),
-		PaymentCustomerID:    stringPtr("cus_test"),
+		PaymentGatewayID:      "sub_test123",
+		Stage:                 1,
+		TenantEmail:           stringPtr("test@example.com"),
+		TenantName:            stringPtr("Test Tenant"),
+		PaymentCustomerID:     stringPtr("cus_test"),
 		PaymentSubscriptionID: stringPtr("sub_test123"),
-		CreatedAt:            time.Now(),
+		CreatedAt:             time.Now(),
 	}
 
 	// Execute
-	err := uc.sendDunningEmail(context.Background(), pending, 1)
+	err := uc.sendDunningEmail(ctx, pending, 1)
 
 	// Verify
 	assert.NoError(t, err)
@@ -97,48 +96,49 @@ func TestBillingUseCase_SendDunningEmail_InvalidEmail(t *testing.T) {
 
 	uc := &BillingUseCase{
 		emailProvider:  mockEmailProvider,
-		emailTemplates: email.NewTemplateLoader(),
+		emailTemplates: emailTemplates,
 		planConfigs:    payment.DefaultPlanConfigs(),
 	}
 
 	// Test with missing email
 	pending := &repository.DunningPending{
 		TenantID:              "test-tenant-id",
-		PaymentGatewayID:     "sub_test123",
-		Stage:                1,
-		TenantEmail:          nil, // Missing email
-		TenantName:           stringPtr("Test Tenant"),
-		PaymentCustomerID:    stringPtr("cus_test"),
+		PaymentGatewayID:      "sub_test123",
+		Stage:                 1,
+		TenantEmail:           nil, // Missing email
+		TenantName:            stringPtr("Test Tenant"),
+		PaymentCustomerID:     stringPtr("cus_test"),
 		PaymentSubscriptionID: stringPtr("sub_test123"),
-		CreatedAt:            time.Now(),
+		CreatedAt:             time.Now(),
 	}
 
-	err := uc.sendDunningEmail(context.Background(), pending, 1)
+	err := uc.sendDunningEmail(ctx, pending, 1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "tenant email not available")
 }
 
 func TestBillingUseCase_SendDunningEmail_NoEmailProvider(t *testing.T) {
 	ctx := context.Background()
+	templates, _ := email.NewTemplateLoader()
 
 	uc := &BillingUseCase{
 		emailProvider:  nil, // No email provider
-		emailTemplates: email.NewTemplateLoader(),
+		emailTemplates: templates,
 		planConfigs:    payment.DefaultPlanConfigs(),
 	}
 
 	pending := &repository.DunningPending{
 		TenantID:              "test-tenant-id",
-		PaymentGatewayID:     "sub_test123",
-		Stage:                1,
-		TenantEmail:          stringPtr("test@example.com"),
-		TenantName:           stringPtr("Test Tenant"),
-		PaymentCustomerID:    stringPtr("cus_test"),
+		PaymentGatewayID:      "sub_test123",
+		Stage:                 1,
+		TenantEmail:           stringPtr("test@example.com"),
+		TenantName:            stringPtr("Test Tenant"),
+		PaymentCustomerID:     stringPtr("cus_test"),
 		PaymentSubscriptionID: stringPtr("sub_test123"),
-		CreatedAt:            time.Now(),
+		CreatedAt:             time.Now(),
 	}
 
-	err := uc.sendDunningEmail(context.Background(), pending, 1)
+	err := uc.sendDunningEmail(ctx, pending, 1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "email provider or templates not configured")
 }

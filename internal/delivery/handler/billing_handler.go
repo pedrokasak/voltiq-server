@@ -4,14 +4,17 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/voltiq/server/internal/delivery/middleware"
 	"github.com/voltiq/server/internal/delivery/request"
 	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/payment"
+	"github.com/voltiq/server/internal/repository"
 	"github.com/voltiq/server/internal/usecase"
 )
 
@@ -43,8 +46,7 @@ func (h *BillingHandler) GetBillingInfo(w http.ResponseWriter, r *http.Request) 
 				request.Fail("NOT_FOUND", "tenant not found", nil))
 			return
 		}
-		request.WriteJSON(w, http.StatusInternalServerError,
-			request.Fail("BILLING_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "BILLING_ERROR")
 		return
 	}
 
@@ -61,8 +63,8 @@ func (h *BillingHandler) ActivatePlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type ActivateRequest struct {
-		Plan           string `json:"plan"`             // starter, pro, enterprise
-		BillingType    string `json:"billing_type"`     // BOLETO, CREDIT_CARD, PIX
+		Plan            string `json:"plan"`         // starter, pro, enterprise
+		BillingType     string `json:"billing_type"` // BOLETO, CREDIT_CARD, PIX
 		CreditCardToken string `json:"credit_card_token,omitempty"`
 	}
 
@@ -107,8 +109,7 @@ func (h *BillingHandler) ActivatePlan(w http.ResponseWriter, r *http.Request) {
 				request.Fail("ALREADY_ACTIVE", "tenant already has active subscription", nil))
 			return
 		}
-		request.WriteJSON(w, http.StatusInternalServerError,
-			request.Fail("ACTIVATE_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "ACTIVATE_ERROR")
 		return
 	}
 
@@ -165,8 +166,7 @@ func (h *BillingHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 				request.Fail("SEAT_LIMIT_EXCEEDED", "plan downgrade would exceed current seat count", nil))
 			return
 		}
-		request.WriteJSON(w, http.StatusInternalServerError,
-			request.Fail("CHANGE_PLAN_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "CHANGE_PLAN_ERROR")
 		return
 	}
 
@@ -194,8 +194,7 @@ func (h *BillingHandler) CancelSubscription(w http.ResponseWriter, r *http.Reque
 				request.Fail("NOT_FOUND", "no active subscription", nil))
 			return
 		}
-		request.WriteJSON(w, http.StatusInternalServerError,
-			request.Fail("CANCEL_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "CANCEL_ERROR")
 		return
 	}
 
@@ -227,23 +226,103 @@ func (h *BillingHandler) GetPaymentHistory(w http.ResponseWriter, r *http.Reques
 	}
 
 	payments, err := h.billingUseCase.GetPaymentHistory(r.Context(), tenantID, limit, offset)
+	if err == nil && payments == nil {
+		payments = []*payment.Payment{}
+	}
 	if err != nil {
 		if errors.Is(err, usecase.ErrTenantNotFound) {
 			request.WriteJSON(w, http.StatusNotFound,
 				request.Fail("NOT_FOUND", "tenant not found", nil))
 			return
 		}
-		request.WriteJSON(w, http.StatusInternalServerError,
-			request.Fail("PAYMENTS_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "PAYMENTS_ERROR")
 		return
 	}
 
-	request.WriteJSON(w, http.StatusOK, request.Success(payments, ""))
+	request.WriteJSON(w, http.StatusOK, request.Success(map[string]any{"data": payments, "total": len(payments)}, ""))
+}
+
+// GetProrationHistory handles GET /api/v1/billing/proration
+func (h *BillingHandler) GetProrationHistory(w http.ResponseWriter, r *http.Request) {
+	items, err := h.billingUseCase.GetProrationHistory(r.Context(), middleware.GetTenantID(r.Context()))
+	if err != nil {
+		writeUseCaseError(w, err, "PRORATION_ERROR")
+		return
+	}
+	if items == nil {
+		items = []*repository.ProrationCredit{}
+	}
+	request.WriteJSON(w, http.StatusOK, request.Success(map[string]any{"data": items}, ""))
+}
+
+// GetDunningHistory handles GET /api/v1/billing/dunning
+func (h *BillingHandler) GetDunningHistory(w http.ResponseWriter, r *http.Request) {
+	items, err := h.billingUseCase.GetDunningHistory(r.Context(), middleware.GetTenantID(r.Context()))
+	if err != nil {
+		writeUseCaseError(w, err, "DUNNING_ERROR")
+		return
+	}
+	if items == nil {
+		items = []*repository.DunningEvent{}
+	}
+	request.WriteJSON(w, http.StatusOK, request.Success(map[string]any{"data": items}, ""))
+}
+
+func writePaymentError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, usecase.ErrPaymentNotFound):
+		request.WriteJSON(w, http.StatusNotFound, request.Fail("NOT_FOUND", "cobrança não encontrada", nil))
+	case errors.Is(err, usecase.ErrPaymentProviderError):
+		request.WriteJSON(w, http.StatusBadGateway, request.Fail("GATEWAY_ERROR", "gateway de pagamento indisponível", nil))
+	default:
+		writeUseCaseError(w, err, "PAYMENT_ERROR")
+	}
+}
+
+// paymentLink returns the hosted invoice or boleto URL of a payment as JSON
+// ({url}); the PDF itself is served by the gateway.
+func (h *BillingHandler) paymentLink(w http.ResponseWriter, r *http.Request, kind string) {
+	id := chi.URLParam(r, "id")
+	if id == "" || len(id) > 64 {
+		request.WriteJSON(w, http.StatusNotFound, request.Fail("NOT_FOUND", "cobrança não encontrada", nil))
+		return
+	}
+	url, err := h.billingUseCase.PaymentLink(r.Context(), middleware.GetTenantID(r.Context()), id, kind)
+	if err != nil {
+		writePaymentError(w, err)
+		return
+	}
+	request.WriteJSON(w, http.StatusOK, request.Success(map[string]string{"url": url}, ""))
+}
+
+// GetInvoice handles GET /api/v1/billing/payments/{id}/invoice
+func (h *BillingHandler) GetInvoice(w http.ResponseWriter, r *http.Request) {
+	h.paymentLink(w, r, "invoice")
+}
+
+// GetBoleto handles GET /api/v1/billing/payments/{id}/boleto
+func (h *BillingHandler) GetBoleto(w http.ResponseWriter, r *http.Request) {
+	h.paymentLink(w, r, "boleto")
+}
+
+// GetPixQRCode handles GET /api/v1/billing/payments/{id}/pix-qrcode
+func (h *BillingHandler) GetPixQRCode(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || len(id) > 64 {
+		request.WriteJSON(w, http.StatusNotFound, request.Fail("NOT_FOUND", "cobrança não encontrada", nil))
+		return
+	}
+	qr, err := h.billingUseCase.PixQRCode(r.Context(), middleware.GetTenantID(r.Context()), id)
+	if err != nil {
+		writePaymentError(w, err)
+		return
+	}
+	request.WriteJSON(w, http.StatusOK, request.Success(qr, ""))
 }
 
 // WebhookHandler handles payment provider webhooks
 type WebhookHandler struct {
-	billingUseCase *usecase.BillingUseCase
+	billingUseCase  *usecase.BillingUseCase
 	paymentProvider payment.PaymentProvider
 }
 
@@ -287,8 +366,9 @@ func (h *WebhookHandler) HandleAsaasWebhook(w http.ResponseWriter, r *http.Reque
 
 	// Process event
 	if err := h.billingUseCase.HandleWebhook(r.Context(), event); err != nil {
-		// Log error but return 200 to avoid retries for processing errors
-		log.Printf("Webhook processing error: %v", err)
+		// Erro de processamento fica registrado (webhook_events) para retry
+		// interno; responde 200 para o gateway nao reenviar em loop.
+		slog.Error("webhook processing failed", "event_type", event.Type, "event_id", event.ID, "error", err)
 	}
 
 	request.WriteJSON(w, http.StatusOK, request.Success(map[string]string{"status": "ok"}, ""))

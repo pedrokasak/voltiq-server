@@ -21,16 +21,16 @@ type Claims struct {
 }
 
 type Service struct {
-	secretKey          []byte
-	expiration         time.Duration
-	refreshExpiration  time.Duration
+	secretKey         []byte
+	expiration        time.Duration
+	refreshExpiration time.Duration
 }
 
 func NewService(secretKey string) *Service {
 	return &Service{
-		secretKey:          []byte(secretKey),
-		expiration:         24 * time.Hour,
-		refreshExpiration:  7 * 24 * time.Hour,
+		secretKey:         []byte(secretKey),
+		expiration:        24 * time.Hour,
+		refreshExpiration: 7 * 24 * time.Hour,
 	}
 }
 
@@ -115,3 +115,9 @@ func (s *Service) ValidateRefreshToken(tokenString string) (*Claims, error) {
 
 	return claims, nil
 }
+
+// Expiration returns the access token lifetime.
+func (s *Service) Expiration() time.Duration { return s.expiration }
+
+// RefreshExpiration returns the refresh token lifetime.
+func (s *Service) RefreshExpiration() time.Duration { return s.refreshExpiration }

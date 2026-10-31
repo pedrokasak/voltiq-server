@@ -4,671 +4,504 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/voltiq/server/internal/delivery/handler"
-	"github.com/voltiq/server/internal/delivery/middleware"
-	"github.com/voltiq/server/internal/delivery/router"
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/voltiq/server/internal/app"
 	"github.com/voltiq/server/internal/domain"
-	"github.com/voltiq/server/internal/ingestion"
-	"github.com/voltiq/server/internal/jwt"
-	"github.com/voltiq/server/internal/repository"
-	"github.com/voltiq/server/internal/usecase"
-	"github.com/voltiq/server/pkg/metrics"
 )
 
-// TestApp holds the test application state
-type TestApp struct {
-	Server      *httptest.Server
-	Router      http.Handler
-	AuthToken   string
-	TenantID    domain.UUID
-	UserID      domain.UUID
-	DB          *repository.Database
-	AuthUseCase *usecase.AuthUseCase
+// testApp is the production wiring served by httptest.
+type testApp struct {
+	*app.App
+	Server *httptest.Server
 }
 
-// NewTestApp creates a new test application
-func NewTestApp(t *testing.T) *TestApp {
-	ctx := context.Background()
-
-	// Use test database
-	db, err := repository.NewDatabase(ctx)
+func newTestApp(t *testing.T) *testApp {
+	t.Helper()
+	if os.Getenv("DATABASE_URL") == "" {
+		t.Skip("DATABASE_URL não definido: testes de integração ignorados")
+	}
+	a, err := app.Build(context.Background(), app.Options{
+		JWTSecret: "integration-test-secret-0123456789abcdef", DisableRateLimit: true,
+		CORSOrigins: []string{"http://localhost:5173"},
+	})
 	if err != nil {
-		t.Skip("Skipping integration test: database not available")
-		return nil
+		// Com DATABASE_URL definido a falha e real (no CI nao pode ser pulada)
+		t.Fatalf("banco indisponível: %v", err)
 	}
-
-	// Initialize repositories
-	userRepo := repository.NewUserRepository(db)
-	tenantRepo := repository.NewTenantRepository(db)
-	transformerRepo := repository.NewTransformerRepository(db)
-	ucRepo := repository.NewConsumingUnitRepository(db)
-	transformerReadingRepo := repository.NewTransformerReadingRepository(db)
-	ucReadingRepo := repository.NewUCReadingRepository(db)
-	balanceRepo := repository.NewBalanceRepository(db)
-	importRepo := repository.NewImportRepository(db)
-	inviteRepo := repository.NewInviteRepository(db)
-	alertRepo := repository.NewAlertRepository(db)
-
-	// Initialize JWT service
-	jwtService := jwt.NewService("test-secret-key-change-in-production")
-	jwtService.SetExpiration(24 * time.Hour)
-	jwtService.SetRefreshExpiration(7 * 24 * time.Hour)
-
-	// Initialize use cases
-	authUseCase := usecase.NewAuthUseCase(userRepo, tenantRepo, jwtService)
-	signupUseCase := usecase.NewSignupUseCase(tenantRepo, userRepo)
-	inviteUseCase := usecase.NewInviteUseCase(inviteRepo, userRepo, tenantRepo)
-	transformerUseCase := usecase.NewTransformerUseCase(transformerRepo)
-	ucUseCase := usecase.NewConsumingUnitUseCase(ucRepo)
-	balanceUseCase := usecase.NewBalanceUseCase(balanceRepo, transformerRepo, transformerReadingRepo, ucReadingRepo, ucRepo)
-	importUseCase := usecase.NewImportUseCase(ingestion.NewCSVParser(), importRepo, transformerReadingRepo, ucReadingRepo)
-	alertUseCase := usecase.NewAlertUseCase(alertRepo)
-	riskUseCase := usecase.NewRiskUseCase(balanceRepo, transformerRepo, ucRepo)
-
-	// Initialize handlers
-	authHandler := handler.NewAuthHandler(authUseCase, signupUseCase)
-	inviteHandler := handler.NewInviteHandler(inviteUseCase)
-	transformerHandler := handler.NewTransformerHandler(transformerUseCase)
-	ucHandler := handler.NewConsumingUnitHandler(ucUseCase)
-	balanceHandler := handler.NewBalanceHandler(balanceUseCase)
-	importHandler := handler.NewImportHandler(importUseCase)
-	alertHandler := handler.NewAlertHandler(alertUseCase)
-	riskHandler := handler.NewRiskHandler(riskUseCase)
-	dashboardHandler := handler.NewDashboardHandler(transformerRepo, balanceRepo, ucRepo)
-	healthHandler := handler.NewHealthHandler("test")
-
-	// Initialize middleware
-	authMiddleware := middleware.NewAuthMiddleware(jwtService, db)
-	rateLimiter := middleware.NewRateLimiter(1000, 100)
-	securityMiddleware := middleware.NewSecurityMiddleware()
-	metricsCollector := metrics.NewMetricsCollector()
-
-	// Setup router
-	cfg := router.Config{
-		AuthHandler:          authHandler,
-		InviteHandler:        inviteHandler,
-		TransformerHandler:   transformerHandler,
-		ConsumingUnitHandler: ucHandler,
-		BalanceHandler:       balanceHandler,
-		ImportHandler:        importHandler,
-		AlertHandler:         alertHandler,
-		RiskHandler:          riskHandler,
-		DashboardHandler:     dashboardHandler,
-		HealthHandler:        healthHandler,
-		MetricsCollector:     metricsCollector,
-		AuthMiddleware:       authMiddleware,
-		RateLimiter:          rateLimiter,
-		SecurityMiddleware:   securityMiddleware,
-		CORSOrigins:          []string{"*"},
-	}
-
-	router := router.Setup(cfg)
-	server := httptest.NewServer(router)
-
-	return &TestApp{
-		Server:      server,
-		Router:      router,
-		DB:          db,
-		AuthUseCase: authUseCase,
-	}
+	ta := &testApp{App: a, Server: httptest.NewServer(a.Router)}
+	t.Cleanup(func() {
+		ta.Server.Close()
+		a.Close()
+	})
+	return ta
 }
 
-// Close cleans up the test app
-func (app *TestApp) Close() {
-	app.Server.Close()
-	app.DB.Close()
+// session is an authenticated client.
+type session struct {
+	t     *testing.T
+	base  string
+	token string
 }
 
-// Login logs in and stores the auth token
-func (app *TestApp) Login(t *testing.T, email, password string) string {
-	reqBody := map[string]string{
-		"email":    email,
-		"password": password,
-	}
-	body, _ := json.Marshal(reqBody)
-
-	resp, err := http.Post(app.Server.URL+"/api/v1/auth/login", "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		t.Fatalf("Login request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result)
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("Login failed with status %d: %v", resp.StatusCode, result)
-	}
-
-	data := result["data"].(map[string]any)
-	token := data["token"].(string)
-	app.AuthToken = token
-	return token
+type envelope struct {
+	Success bool            `json:"success"`
+	Data    json.RawMessage `json:"data"`
+	Error   *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+	Message string `json:"message"`
 }
 
-// Signup creates a new tenant and admin user
-func (app *TestApp) Signup(t *testing.T) (string, domain.UUID) {
-	reqBody := map[string]string{
-		"tenant_name":     "Test Cooperative",
-		"tenant_document": "12.345.678/0001-90",
-		"plan":            "trial",
-		"admin_name":      "Test Admin",
-		"admin_email":     "admin@test-" + uuid.New().String()[:8] + ".coop.br",
-		"admin_password":  "TestPassword123!",
-	}
-	body, _ := json.Marshal(reqBody)
-
-	resp, err := http.Post(app.Server.URL+"/api/v1/auth/signup", "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		t.Fatalf("Signup request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result)
-
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("Signup failed with status %d: %v", resp.StatusCode, result)
-	}
-
-	data := result["data"].(map[string]any)
-	tenant := data["tenant"].(map[string]any)
-	user := data["user"].(map[string]any)
-
-	app.TenantID = domain.UUID(tenant["id"].(string))
-	app.UserID = domain.UUID(user["id"].(string))
-
-	return app.Login(t, reqBody["admin_email"], reqBody["admin_password"]), app.TenantID
-}
-
-// AuthenticatedRequest makes an authenticated HTTP request
-func (app *TestApp) AuthenticatedRequest(t *testing.T, method, path string, body interface{}) *http.Response {
-	var reqBody *bytes.Buffer
+func (s *session) do(method, path string, body any) (int, envelope, []byte) {
+	s.t.Helper()
+	var rdr io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
-		reqBody = bytes.NewBuffer(b)
-	} else {
-		reqBody = bytes.NewBuffer(nil)
+		rdr = bytes.NewReader(b)
 	}
+	req, _ := http.NewRequest(method, s.base+path, rdr)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if s.token != "" {
+		req.Header.Set("Authorization", "Bearer "+s.token)
+	}
+	return s.send(req)
+}
 
-	req, err := http.NewRequest(method, app.Server.URL+path, reqBody)
+func (s *session) send(req *http.Request) (int, envelope, []byte) {
+	s.t.Helper()
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+app.AuthToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("Request failed: %v", err)
-	}
-
-	return resp
-}
-
-// AssertSuccess asserts that the response is successful and returns the data
-func (app *TestApp) AssertSuccess(t *testing.T, resp *http.Response, expectedStatus int) map[string]any {
-	defer resp.Body.Close()
-
-	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result)
-
-	if resp.StatusCode != expectedStatus {
-		t.Fatalf("Expected status %d, got %d: %v", expectedStatus, resp.StatusCode, result)
-	}
-
-	if success, ok := result["success"].(bool); !ok || !success {
-		t.Fatalf("Response indicates failure: %v", result)
-	}
-
-	return result["data"].(map[string]any)
-}
-
-// TestTransformerCRUD tests transformer CRUD operations
-func TestTransformerCRUD(t *testing.T) {
-	app := NewTestApp(t)
-	if app == nil {
-		return
-	}
-	defer app.Close()
-
-	// Signup
-	app.Signup(t)
-
-	// Test Create Transformer
-	createReq := map[string]interface{}{
-		"code":                "TRF-TEST-001",
-		"power_kva":           112.5,
-		"primary_voltage_kv":  13.8,
-		"secondary_voltage_v": 220,
-		"lat":                 -23.5505,
-		"lng":                 -46.6333,
-		"core_loss_kw":        0.340,
-		"winding_loss_kw":     1.450,
-		"loss_limit_pct":      10.0,
-	}
-
-	resp := app.AuthenticatedRequest(t, "POST", "/api/v1/transformers", createReq)
-	data := app.AssertSuccess(t, resp, http.StatusCreated)
-	transformerID := data["id"].(string)
-	t.Logf("Created transformer: %s", transformerID)
-
-	// Test Get Transformer
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/transformers/"+transformerID, nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test List Transformers
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/transformers", nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test Update Transformer
-	updateReq := map[string]interface{}{
-		"code":                "TRF-TEST-001-UPDATED",
-		"power_kva":           150.0,
-		"primary_voltage_kv":  13.8,
-		"secondary_voltage_v": 220,
-	}
-	resp = app.AuthenticatedRequest(t, "PUT", "/api/v1/transformers/"+transformerID, updateReq)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test Get Technical Data
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/transformers/"+transformerID+"/technical-data", nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test Get Loss Limit
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/transformers/"+transformerID+"/loss-limit", nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test Soft Delete
-	resp = app.AuthenticatedRequest(t, "DELETE", "/api/v1/transformers/"+transformerID, nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Verify it's deleted (should not appear in list)
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/transformers", nil)
-	data = app.AssertSuccess(t, resp, http.StatusOK)
-	transformers := data["transformers"].([]interface{})
-	if len(transformers) > 0 {
-		t.Errorf("Expected empty transformer list after delete, got %d", len(transformers))
-	}
-}
-
-// TestConsumingUnitCRUD tests consuming unit CRUD operations
-func TestConsumingUnitCRUD(t *testing.T) {
-	app := NewTestApp(t)
-	if app == nil {
-		return
-	}
-	defer app.Close()
-
-	app.Signup(t)
-
-	// First create a transformer
-	createReq := map[string]interface{}{
-		"code":                "TRF-UC-TEST",
-		"power_kva":           112.5,
-		"primary_voltage_kv":  13.8,
-		"secondary_voltage_v": 220,
-	}
-	resp := app.AuthenticatedRequest(t, "POST", "/api/v1/transformers", createReq)
-	data := app.AssertSuccess(t, resp, http.StatusCreated)
-	transformerID := data["id"].(string)
-
-	// Test Create Consuming Unit
-	ucReq := map[string]interface{}{
-		"transformer_id": transformerID,
-		"uc_code":        "UC-TEST-001",
-		"name":           "Test Consumer Unit",
-		"class":          "RESIDENTIAL",
-	}
-	resp = app.AuthenticatedRequest(t, "POST", "/api/v1/consuming-units", ucReq)
-	data = app.AssertSuccess(t, resp, http.StatusCreated)
-	ucID := data["id"].(string)
-	t.Logf("Created consuming unit: %s", ucID)
-
-	// Test Get Consuming Unit
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/consuming-units/"+ucID, nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test List Consuming Units
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/consuming-units", nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test List by Transformer
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/consuming-units/transformer/"+transformerID, nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test Update Consuming Unit
-	updateReq := map[string]interface{}{
-		"name":  "Updated Test Consumer",
-		"class": "COMMERCIAL",
-	}
-	resp = app.AuthenticatedRequest(t, "PUT", "/api/v1/consuming-units/"+ucID, updateReq)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test Delete Consuming Unit
-	resp = app.AuthenticatedRequest(t, "DELETE", "/api/v1/consuming-units/"+ucID, nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-}
-
-// TestBalanceCalculation tests energy balance calculation endpoint
-func TestBalanceCalculation(t *testing.T) {
-	app := NewTestApp(t)
-	if app == nil {
-		return
-	}
-	defer app.Close()
-
-	app.Signup(t)
-
-	// Create transformer
-	createReq := map[string]interface{}{
-		"code":                "TRF-BALANCE-TEST",
-		"power_kva":           112.5,
-		"primary_voltage_kv":  13.8,
-		"secondary_voltage_v": 220,
-		"core_loss_kw":        0.340,
-		"winding_loss_kw":     1.450,
-		"loss_limit_pct":      10.0,
-	}
-	resp := app.AuthenticatedRequest(t, "POST", "/api/v1/transformers", createReq)
-	data := app.AssertSuccess(t, resp, http.StatusCreated)
-	transformerID := data["id"].(string)
-
-	// Create consuming units
-	for i := 1; i <= 3; i++ {
-		ucReq := map[string]interface{}{
-			"transformer_id": transformerID,
-			"uc_code":        "UC-BAL-" + string(rune(i+'0')),
-			"name":           "UC " + string(rune(i+'0')),
-			"class":          "RESIDENTIAL",
-		}
-		resp = app.AuthenticatedRequest(t, "POST", "/api/v1/consuming-units", ucReq)
-		app.AssertSuccess(t, resp, http.StatusCreated)
-	}
-
-	// Calculate balance
-	balanceReq := map[string]string{
-		"period_start": "2025-01-01",
-		"period_end":   "2025-01-31",
-	}
-	resp = app.AuthenticatedRequest(t, "POST", "/api/v1/balance/transformer/"+transformerID+"/calculate", balanceReq)
-
-	// This might fail if no readings exist - that's expected
-	if resp.StatusCode == http.StatusInternalServerError {
-		t.Log("Balance calculation failed as expected (no readings in DB)")
-		return
-	}
-
-	data = app.AssertSuccess(t, resp, http.StatusOK)
-	t.Logf("Balance calculated: %v", data)
-}
-
-// TestAlertConfiguration tests alert configuration endpoints
-func TestAlertConfiguration(t *testing.T) {
-	app := NewTestApp(t)
-	if app == nil {
-		return
-	}
-	defer app.Close()
-
-	app.Signup(t)
-
-	// Create transformer
-	createReq := map[string]interface{}{
-		"code":                "TRF-ALERT-TEST",
-		"power_kva":           112.5,
-		"primary_voltage_kv":  13.8,
-		"secondary_voltage_v": 220,
-	}
-	resp := app.AuthenticatedRequest(t, "POST", "/api/v1/transformers", createReq)
-	data := app.AssertSuccess(t, resp, http.StatusCreated)
-	transformerID := data["id"].(string)
-
-	// Test Create Alert Config
-	alertReq := map[string]string{
-		"transformer_id": transformerID,
-		"type":           "WARNING",
-		"channel":        "EMAIL",
-		"recipient":      "test@example.com",
-	}
-	resp = app.AuthenticatedRequest(t, "POST", "/api/v1/alerts", alertReq)
-	data = app.AssertSuccess(t, resp, http.StatusCreated)
-	alertID := data["id"].(string)
-	t.Logf("Created alert config: %s", alertID)
-
-	// Test List Alerts for Transformer
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/alerts/transformer/"+transformerID, nil)
-	data = app.AssertSuccess(t, resp, http.StatusOK)
-	alerts := data["alerts"].([]interface{})
-	if len(alerts) != 1 {
-		t.Errorf("Expected 1 alert, got %d", len(alerts))
-	}
-
-	// Test Get Alert by ID
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/alerts/"+alertID, nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test Update Alert Config
-	updateReq := map[string]string{
-		"type":      "CRITICAL",
-		"recipient": "updated@example.com",
-	}
-	resp = app.AuthenticatedRequest(t, "PUT", "/api/v1/alerts/"+alertID, updateReq)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test List All Alerts for Tenant
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/alerts", nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test Delete Alert Config
-	resp = app.AuthenticatedRequest(t, "DELETE", "/api/v1/alerts/"+alertID, nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Verify deleted
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/alerts/"+alertID, nil)
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("Expected 404 after delete, got %d", resp.StatusCode)
-	}
-}
-
-// TestDashboardEndpoints tests dashboard endpoints
-func TestDashboardEndpoints(t *testing.T) {
-	app := NewTestApp(t)
-	if app == nil {
-		return
-	}
-	defer app.Close()
-
-	app.Signup(t)
-
-	// Test Get KPIs
-	resp := app.AuthenticatedRequest(t, "GET", "/api/v1/dashboard/kpis", nil)
-	data := app.AssertSuccess(t, resp, http.StatusOK)
-	t.Logf("KPIs: %v", data)
-
-	// Test Get Monthly Loss History
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/dashboard/monthly-loss", nil)
-	data = app.AssertSuccess(t, resp, http.StatusOK)
-	t.Logf("Monthly loss: %v", data)
-
-	// Test Get Transformer Current Status
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/dashboard/transformer-current-status", nil)
-	data = app.AssertSuccess(t, resp, http.StatusOK)
-	t.Logf("Transformer status: %v", data)
-}
-
-// TestRiskScoreEndpoints tests risk score endpoints
-func TestRiskScoreEndpoints(t *testing.T) {
-	app := NewTestApp(t)
-	if app == nil {
-		return
-	}
-	defer app.Close()
-
-	app.Signup(t)
-
-	// Create transformer
-	createReq := map[string]interface{}{
-		"code":                "TRF-RISK-TEST",
-		"power_kva":           112.5,
-		"primary_voltage_kv":  13.8,
-		"secondary_voltage_v": 220,
-	}
-	resp := app.AuthenticatedRequest(t, "POST", "/api/v1/transformers", createReq)
-	data := app.AssertSuccess(t, resp, http.StatusCreated)
-	transformerID := data["id"].(string)
-
-	// Test Get Risk Score
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/risk/transformer/"+transformerID+"/score", nil)
-	if resp.StatusCode == http.StatusNotFound {
-		t.Log("Risk score not found (expected - no balance data)")
-		return
-	}
-	data = app.AssertSuccess(t, resp, http.StatusOK)
-	t.Logf("Risk score: %v", data)
-
-	// Test Get Anomalies
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/risk/transformer/"+transformerID+"/anomalies", nil)
-	if resp.StatusCode == http.StatusNotFound {
-		t.Log("Anomalies not found (expected - no balance data)")
-		return
-	}
-	data = app.AssertSuccess(t, resp, http.StatusOK)
-	t.Logf("Anomalies: %v", data)
-
-	// Test Get All Risk Scores
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/risk/all-scores", nil)
-	data = app.AssertSuccess(t, resp, http.StatusOK)
-	t.Logf("All risk scores: %v", data)
-
-	// Test Get All Anomalies
-	resp = app.AuthenticatedRequest(t, "GET", "/api/v1/risk/all-anomalies", nil)
-	data = app.AssertSuccess(t, resp, http.StatusOK)
-	t.Logf("All anomalies: %v", data)
-}
-
-// TestHealthEndpoints tests health check endpoints
-func TestHealthEndpoints(t *testing.T) {
-	app := NewTestApp(t)
-	if app == nil {
-		return
-	}
-	defer app.Close()
-
-	// Test /health (no auth required)
-	resp, err := http.Get(app.Server.URL + "/health")
-	if err != nil {
-		t.Fatalf("Health check failed: %v", err)
+		s.t.Fatalf("%s %s: %v", req.Method, req.URL.Path, err)
 	}
 	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	var env envelope
+	_ = json.Unmarshal(raw, &env)
+	return resp.StatusCode, env, raw
+}
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected 200, got %d", resp.StatusCode)
+func (s *session) upload(path, filename, content string, fields map[string]string) (int, envelope, []byte) {
+	s.t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, _ := mw.CreateFormFile("file", filename)
+	_, _ = fw.Write([]byte(content))
+	for k, v := range fields {
+		_ = mw.WriteField(k, v)
 	}
+	_ = mw.Close()
+	req, _ := http.NewRequest(http.MethodPost, s.base+path, &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+s.token)
+	return s.send(req)
+}
 
-	// Test /ready (no auth required)
-	resp, err = http.Get(app.Server.URL + "/ready")
-	if err != nil {
-		t.Fatalf("Readiness check failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected 200, got %d", resp.StatusCode)
+func expect(t *testing.T, label string, got, want int, raw []byte) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("%s: status %d, esperado %d; corpo: %s", label, got, want, string(raw))
 	}
 }
 
-// TestImportEndpoints tests CSV import endpoints
-func TestImportEndpoints(t *testing.T) {
-	app := NewTestApp(t)
-	if app == nil {
-		return
+func decode[T any](t *testing.T, env envelope) T {
+	t.Helper()
+	var v T
+	if err := json.Unmarshal(env.Data, &v); err != nil {
+		t.Fatalf("decode %T: %v (%s)", v, err, string(env.Data))
 	}
-	defer app.Close()
+	return v
+}
 
-	app.Signup(t)
-
-	// Test Get Upload Template
-	resp := app.AuthenticatedRequest(t, "GET", "/api/v1/imports/template", nil)
-	data := app.AssertSuccess(t, resp, http.StatusOK)
-	t.Logf("Template: %v", data)
-
-	// Test Validate CSV (with minimal valid CSV)
-	csvContent := "transformer_id,reading_at,energy_kwh,demand_kw,power_factor\n"
-	csvContent += "00000000-0000-0000-0000-000000000000,2025-01-01 00:00:00,1000.0,50.0,0.95\n"
-
-	// Note: Actual file upload would require multipart form
-	// This just tests the endpoint exists
-	resp = app.AuthenticatedRequest(t, "POST", "/api/v1/imports/validate", map[string]string{
-		"content": csvContent,
+// signup creates a fresh tenant with a unique CNPJ and returns its owner session.
+func (ta *testApp) signup(t *testing.T) (*session, string) {
+	t.Helper()
+	s := &session{t: t, base: ta.Server.URL + "/api/v1"}
+	id := uuid.New().String()[:8]
+	doc := fmt.Sprintf("%014d", time.Now().UnixNano()%1e14)
+	code, env, raw := s.do(http.MethodPost, "/auth/signup", map[string]string{
+		"company_name": "Cooperativa " + id, "cnpj": doc, "name": "Owner " + id,
+		"email": "owner-" + id + "@example.com", "password": "senhaForte123",
 	})
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusBadRequest {
-		t.Logf("Validate CSV returned: %d", resp.StatusCode)
+	expect(t, "signup", code, http.StatusCreated, raw)
+	out := decode[struct {
+		Token  string        `json:"token"`
+		Tenant domain.Tenant `json:"tenant"`
+	}](t, env)
+	if out.Token == "" {
+		t.Fatal("signup sem token")
+	}
+	s.token = out.Token
+	return s, string(out.Tenant.ID)
+}
+
+func TestHealth(t *testing.T) {
+	ta := newTestApp(t)
+	resp, err := http.Get(ta.Server.URL + "/health")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("health: %v %v", err, resp)
 	}
 }
 
-// TestAuthFlow tests authentication flow
+// TestCORSPreflight garante que o navegador do app web passa no preflight
+// (o cliente envia X-Requested-With e usa PATCH).
+func TestCORSPreflight(t *testing.T) {
+	ta := newTestApp(t)
+	req, _ := http.NewRequest(http.MethodOptions, ta.Server.URL+"/api/v1/billing/plan", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Access-Control-Request-Method", "PATCH")
+	req.Header.Set("Access-Control-Request-Headers", "authorization,content-type,x-requested-with")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Fatalf("preflight recusado: Allow-Origin=%q status=%d", got, resp.StatusCode)
+	}
+	if !strings.Contains(strings.ToLower(resp.Header.Get("Access-Control-Allow-Headers")), "x-requested-with") {
+		t.Errorf("X-Requested-With não permitido: %q", resp.Header.Get("Access-Control-Allow-Headers"))
+	}
+}
+
 func TestAuthFlow(t *testing.T) {
-	app := NewTestApp(t)
-	if app == nil {
-		return
-	}
-	defer app.Close()
+	ta := newTestApp(t)
+	s, _ := ta.signup(t)
 
-	// Test Signup
-	token, tenantID := app.Signup(t)
-	t.Logf("Signup successful, tenant: %s, token: %s...", tenantID, token[:20])
-
-	// Test Login with same credentials
-	// (Already logged in during signup)
-
-	// Test Refresh Token
-	resp := app.AuthenticatedRequest(t, "POST", "/api/v1/auth/refresh", nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Logf("Refresh token endpoint returned: %d (may need cookie)", resp.StatusCode)
-	}
-
-	// Test Logout
-	resp = app.AuthenticatedRequest(t, "POST", "/api/v1/auth/logout", nil)
-	app.AssertSuccess(t, resp, http.StatusOK)
-
-	// Test invalid token
-	invalidApp := *app
-	invalidApp.AuthToken = "invalid-token"
-
-	resp = invalidApp.AuthenticatedRequest(t, "GET", "/api/v1/transformers", nil)
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("Expected 401 for invalid token, got %d", resp.StatusCode)
-	}
-}
-
-// TestRateLimiting tests rate limiting
-func TestRateLimiting(t *testing.T) {
-	app := NewTestApp(t)
-	if app == nil {
-		return
-	}
-	defer app.Close()
-
-	app.Signup(t)
-
-	// Make many requests quickly
-	// Note: This is a basic test - actual rate limiting is hard to test without
-	// knowing the exact configuration
-	for i := 0; i < 5; i++ {
-		resp := app.AuthenticatedRequest(t, "GET", "/api/v1/transformers", nil)
-		if resp.StatusCode == http.StatusTooManyRequests {
-			t.Log("Rate limit hit")
-			return
+	code, env, raw := s.do(http.MethodGet, "/auth/me", nil)
+	expect(t, "me", code, http.StatusOK, raw)
+	me := decode[map[string]any](t, env)
+	for _, k := range []string{"user", "tenant", "permissions", "limits", "usage", "onboarding"} {
+		if _, ok := me[k]; !ok {
+			t.Errorf("/auth/me sem %q", k)
 		}
 	}
-	t.Log("Rate limiting test passed (no limit hit in test)")
+
+	anon := &session{t: t, base: s.base}
+	code, _, raw = anon.do(http.MethodGet, "/transformers", nil)
+	expect(t, "sem token", code, http.StatusUnauthorized, raw)
+
+	code, _, raw = anon.do(http.MethodPost, "/auth/login", map[string]string{"email": "nobody@example.com", "password": "x"})
+	expect(t, "login inválido", code, http.StatusUnauthorized, raw)
+}
+
+// TestOperationalFlow cobre cadastro, importacao dinamica, balanco, mapa e
+// dashboards operacional/gerencial.
+func TestOperationalFlow(t *testing.T) {
+	ta := newTestApp(t)
+	s, _ := ta.signup(t)
+
+	code, env, raw := s.do(http.MethodPost, "/substations", map[string]any{"code": "SE-01", "name": "Centro", "lat": -23.5, "lng": -46.6})
+	expect(t, "subestação", code, http.StatusCreated, raw)
+	sub := decode[domain.Substation](t, env)
+
+	lat, lng := -23.55, -46.63
+	code, env, raw = s.do(http.MethodPost, "/transformers", map[string]any{
+		"code": "TRF-001", "power_kva": 75, "primary_voltage_kv": 13.8, "secondary_voltage_v": 220,
+		"lat": lat, "lng": lng, "core_loss_kw": 0.33, "winding_loss_kw": 1.2, "loss_limit_pct": 8,
+		"substation_id": sub.ID,
+	})
+	expect(t, "transformador", code, http.StatusCreated, raw)
+	trafo := decode[domain.Transformer](t, env)
+
+	code, _, raw = s.do(http.MethodPost, "/transformers", map[string]any{"code": "TRF-001", "power_kva": 75, "primary_voltage_kv": 13.8, "secondary_voltage_v": 220})
+	expect(t, "código duplicado", code, http.StatusConflict, raw)
+	code, _, raw = s.do(http.MethodPost, "/transformers", map[string]any{"code": "X", "power_kva": -1})
+	expect(t, "validação", code, http.StatusUnprocessableEntity, raw)
+
+	for _, uc := range []string{"UC-1", "UC-2"} {
+		code, _, raw = s.do(http.MethodPost, "/consuming-units", map[string]any{
+			"transformer_id": trafo.ID, "uc_code": uc, "name": "Cliente " + uc, "class": "residencial",
+		})
+		expect(t, "UC "+uc, code, http.StatusCreated, raw)
+	}
+
+	month := time.Now().AddDate(0, -1, 0)
+	day := func(d int) string {
+		return time.Date(month.Year(), month.Month(), d, 12, 0, 0, 0, time.UTC).Format("02/01/2006 15:04")
+	}
+
+	// Cabecalhos em portugues, separador ";" e decimal com virgula
+	trafoCSV := "Data Leitura;Trafo;Energia (kWh);FP\n" +
+		day(5) + ";TRF-001;6000,5;0,92\n" + day(20) + ";TRF-001;6100;0,93\n" + day(21) + ";TRF-404;10;0,9\n"
+	code, env, raw = s.upload("/imports/validate", "leituras.csv", trafoCSV, map[string]string{"type": "transformer"})
+	expect(t, "validar", code, http.StatusOK, raw)
+	if !strings.Contains(string(env.Data), "TRF-404") {
+		t.Errorf("validação deveria apontar trafo desconhecido: %s", env.Data)
+	}
+
+	code, env, raw = s.upload("/imports/transformers", "leituras.csv", trafoCSV, nil)
+	expect(t, "importar trafo", code, http.StatusOK, raw)
+	imp := decode[map[string]any](t, env)
+	if imp["rows_ok"] == nil {
+		t.Errorf("importação sem rows_ok: %v", imp)
+	}
+
+	ucCSV := "uc,data,consumo\nUC-1," + day(10) + ",5000\nUC-2," + day(10) + ",5500\n"
+	code, _, raw = s.upload("/imports/ucs", "ucs.csv", ucCSV, map[string]string{"mapping": `{"reading_at":"data"}`})
+	expect(t, "importar UCs", code, http.StatusOK, raw)
+
+	// Reenvio do mesmo arquivo: duplicatas ignoradas
+	code, env, raw = s.upload("/imports/transformers", "leituras.csv", trafoCSV, nil)
+	expect(t, "reimportar", code, http.StatusOK, raw)
+	if dup := decode[map[string]any](t, env)["duplicates_skipped"]; dup == nil || dup.(float64) < 2 {
+		t.Errorf("duplicatas não detectadas: %v", dup)
+	}
+
+	start := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, time.UTC)
+	code, env, raw = s.do(http.MethodPost, "/balance/transformer/"+string(trafo.ID)+"/calculate", map[string]string{
+		"period_start": start.Format("2006-01-02"), "period_end": start.AddDate(0, 1, -1).Format("2006-01-02"),
+	})
+	expect(t, "balanço", code, http.StatusOK, raw)
+	bal := decode[map[string]any](t, env)
+	if !strings.Contains(string(env.Data), "loss_pct") {
+		t.Errorf("balanço sem loss_pct: %v", bal)
+	}
+
+	code, env, raw = s.do(http.MethodGet, "/dashboard/map", nil)
+	expect(t, "mapa", code, http.StatusOK, raw)
+	m := decode[struct {
+		Transformers []map[string]any `json:"transformers"`
+		Substations  []map[string]any `json:"substations"`
+		Bounds       map[string]any   `json:"bounds"`
+	}](t, env)
+	if len(m.Transformers) != 1 || len(m.Substations) != 1 || m.Bounds == nil {
+		t.Fatalf("mapa incompleto: %s", env.Data)
+	}
+	if m.Transformers[0]["status"] == "NO_DATA" || m.Transformers[0]["loss_cost_brl"] == nil {
+		t.Errorf("ponto do mapa sem balanço/valor: %v", m.Transformers[0])
+	}
+
+	for _, path := range []string{"/dashboard/operational", "/dashboard/managerial", "/dashboard/kpis",
+		"/dashboard/kpi-sparklines", "/dashboard/loss-evolution", "/dashboard/status-distribution",
+		"/dashboard/quarterly-injected-billed", "/dashboard/accumulated-loss-cost", "/dashboard/top-transformers",
+		"/dashboard/financial-table", "/dashboard/transformer-current-status", "/dashboard/monthly-loss",
+		"/dashboard/loss-composition", "/transformers?status=CRITICAL", "/imports", "/imports/summary",
+		"/alerts", "/alerts/stats", "/substations", "/reports/comparative", "/tenant/settings", "/onboarding",
+		"/transformers/" + string(trafo.ID) + "/loss-analysis", "/consuming-units",
+	} {
+		code, _, raw = s.do(http.MethodGet, path, nil)
+		expect(t, path, code, http.StatusOK, raw)
+	}
+
+	code, env, raw = s.do(http.MethodGet, "/dashboard/managerial", nil)
+	expect(t, "gerencial", code, http.StatusOK, raw)
+	mg := decode[map[string]any](t, env)
+	if mg["tariff_source"] != "default" || mg["current_month"] == nil {
+		t.Errorf("gerencial inesperado: %s", env.Data)
+	}
+
+	// Tarifa do tenant passa a valer nos dashboards
+	code, _, raw = s.do(http.MethodPut, "/tenant/settings", map[string]any{"tariff_brl_mwh": 600})
+	expect(t, "tarifa", code, http.StatusOK, raw)
+	_, env, _ = s.do(http.MethodGet, "/dashboard/managerial", nil)
+	if decode[map[string]any](t, env)["tariff_brl_mwh"].(float64) != 600 {
+		t.Errorf("tarifa do tenant ignorada: %s", env.Data)
+	}
+
+	// Leitura manual (RF02.5)
+	code, _, raw = s.do(http.MethodPost, "/transformers/"+string(trafo.ID)+"/readings", map[string]any{
+		"reading_at": time.Now().Add(-time.Hour).Format(time.RFC3339), "energy_kwh": 120.5,
+	})
+	expect(t, "leitura manual", code, http.StatusCreated, raw)
+
+	for _, path := range []string{"/exports/balance/" + string(trafo.ID) + "?format=excel", "/exports/aneel",
+		"/exports/readings?type=transformer", "/imports/template?type=transformers"} {
+		req, _ := http.NewRequest(http.MethodGet, s.base+path, nil)
+		req.Header.Set("Authorization", "Bearer "+s.token)
+		code, _, raw = s.send(req)
+		expect(t, path, code, http.StatusOK, raw[:min(len(raw), 300)])
+	}
+}
+
+// TestRBACAndIsolation cobre convite, papel ENGINEER sem R$ e isolamento
+// entre tenants.
+func TestRBACAndIsolation(t *testing.T) {
+	ta := newTestApp(t)
+	owner, _ := ta.signup(t)
+
+	code, env, raw := owner.do(http.MethodPost, "/transformers", map[string]any{
+		"code": "TRF-A", "power_kva": 45, "primary_voltage_kv": 13.8, "secondary_voltage_v": 220,
+	})
+	expect(t, "trafo A", code, http.StatusCreated, raw)
+	trafo := decode[domain.Transformer](t, env)
+
+	email := "eng-" + uuid.New().String()[:8] + "@example.com"
+	code, env, raw = owner.do(http.MethodPost, "/invites", map[string]string{"email": email, "role": "ENGINEER"})
+	expect(t, "convite", code, http.StatusCreated, raw)
+	token := decode[map[string]any](t, env)["token"].(string)
+
+	eng := &session{t: t, base: owner.base}
+	code, env, raw = eng.do(http.MethodPost, "/invites/"+token+"/accept", map[string]string{"name": "Eng", "password": "senhaForte123"})
+	expect(t, "aceitar convite", code, http.StatusOK, raw)
+	eng.token = decode[map[string]any](t, env)["token"].(string)
+
+	code, _, raw = eng.do(http.MethodGet, "/dashboard/operational", nil)
+	expect(t, "engenheiro operacional", code, http.StatusOK, raw)
+	code, _, raw = eng.do(http.MethodGet, "/dashboard/managerial", nil)
+	expect(t, "engenheiro gerencial", code, http.StatusForbidden, raw)
+	code, _, raw = eng.do(http.MethodDelete, "/transformers/"+string(trafo.ID), nil)
+	expect(t, "engenheiro exclui", code, http.StatusForbidden, raw)
+	code, _, raw = eng.do(http.MethodGet, "/users", nil)
+	expect(t, "engenheiro usuários", code, http.StatusForbidden, raw)
+	code, env, raw = eng.do(http.MethodGet, "/dashboard/map", nil)
+	expect(t, "engenheiro mapa", code, http.StatusOK, raw)
+	if strings.Contains(string(env.Data), "tariff_brl_mwh") {
+		t.Errorf("mapa expôs R$ ao engenheiro")
+	}
+
+	code, env, raw = owner.do(http.MethodGet, "/users", nil)
+	expect(t, "usuários", code, http.StatusOK, raw)
+	if !strings.Contains(string(env.Data), email) {
+		t.Errorf("lista de usuários sem o engenheiro: %s", env.Data)
+	}
+
+	other, _ := ta.signup(t)
+	code, _, raw = other.do(http.MethodGet, "/transformers/"+string(trafo.ID), nil)
+	expect(t, "outro tenant lê", code, http.StatusNotFound, raw)
+	code, _, raw = other.do(http.MethodPut, "/transformers/"+string(trafo.ID), map[string]any{"power_kva": 10})
+	expect(t, "outro tenant altera", code, http.StatusNotFound, raw)
+	code, _, raw = other.do(http.MethodDelete, "/transformers/"+string(trafo.ID), nil)
+	expect(t, "outro tenant exclui", code, http.StatusNotFound, raw)
+	code, env, raw = other.do(http.MethodGet, "/transformers", nil)
+	expect(t, "outro tenant lista", code, http.StatusOK, raw)
+	if strings.Contains(string(env.Data), "TRF-A") {
+		t.Errorf("listagem vazou trafo de outro tenant")
+	}
+}
+
+// TestSuperAdmin cobre o painel master e a gestao de assinaturas.
+func TestSuperAdmin(t *testing.T) {
+	ta := newTestApp(t)
+	owner, tenantID := ta.signup(t)
+
+	email := "super-" + uuid.New().String()[:8] + "@example.com"
+	hash, _ := bcrypt.GenerateFromPassword([]byte("senhaForte123"), bcrypt.MinCost)
+	now := time.Now()
+	if err := ta.Users.Create(context.Background(), &domain.User{
+		ID: domain.UUID(uuid.New().String()), TenantID: domain.UUID(tenantID), Email: email, Name: "Super",
+		PasswordHash: string(hash), Role: domain.UserRoleSuperAdmin, Active: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("criar super admin: %v", err)
+	}
+	admin := &session{t: t, base: owner.base}
+	code, env, raw := admin.do(http.MethodPost, "/auth/login", map[string]string{"email": email, "password": "senhaForte123"})
+	expect(t, "login super", code, http.StatusOK, raw)
+	admin.token = decode[map[string]any](t, env)["token"].(string)
+
+	code, _, raw = owner.do(http.MethodGet, "/admin/tenants", nil)
+	expect(t, "owner no admin", code, http.StatusForbidden, raw)
+
+	code, env, raw = admin.do(http.MethodGet, "/admin/tenants?limit=5", nil)
+	expect(t, "listar tenants", code, http.StatusOK, raw)
+	if !strings.Contains(string(env.Data), `"total"`) {
+		t.Errorf("lista sem total: %s", env.Data)
+	}
+	code, env, raw = admin.do(http.MethodGet, "/admin/tenants/"+tenantID, nil)
+	expect(t, "detalhe", code, http.StatusOK, raw)
+	if !strings.Contains(string(env.Data), `"usage"`) {
+		t.Errorf("detalhe sem uso: %s", env.Data)
+	}
+	code, _, raw = admin.do(http.MethodPost, "/admin/tenants/"+tenantID+"/extend-trial", map[string]any{"days": 7, "reason": "teste"})
+	expect(t, "estender trial", code, http.StatusOK, raw)
+	code, _, raw = admin.do(http.MethodPatch, "/admin/tenants/"+tenantID+"/status", map[string]any{"status": "SUSPENDED", "reason": "teste"})
+	expect(t, "suspender", code, http.StatusOK, raw)
+
+	code, env, raw = owner.do(http.MethodGet, "/transformers", nil)
+	expect(t, "tenant suspenso", code, http.StatusPaymentRequired, raw)
+	if env.Error == nil || env.Error.Code != "TENANT_SUSPENDED" {
+		t.Errorf("código inesperado: %s", raw)
+	}
+	code, _, raw = owner.do(http.MethodGet, "/auth/me", nil)
+	expect(t, "perfil liberado", code, http.StatusOK, raw)
+
+	code, _, raw = admin.do(http.MethodPost, "/admin/tenants/"+tenantID+"/activate", map[string]any{"plan": "pro"})
+	expect(t, "ativar", code, http.StatusOK, raw)
+	code, _, raw = owner.do(http.MethodGet, "/transformers", nil)
+	expect(t, "tenant ativo", code, http.StatusOK, raw)
+
+	code, env, raw = admin.do(http.MethodGet, "/admin/billing/metrics?period=90d", nil)
+	expect(t, "métricas", code, http.StatusOK, raw)
+	met := decode[map[string]any](t, env)
+	for _, k := range []string{"mrr", "arr", "churn_rate", "ltv", "trial_conversion", "by_plan", "series"} {
+		if _, ok := met[k]; !ok {
+			t.Errorf("métricas sem %q", k)
+		}
+	}
+	code, env, raw = admin.do(http.MethodGet, "/admin/audit", nil)
+	expect(t, "auditoria", code, http.StatusOK, raw)
+	if !strings.Contains(string(env.Data), "TENANT_ACTIVATED") {
+		t.Errorf("auditoria sem ativação: %s", env.Data)
+	}
+}
+
+func TestTraining(t *testing.T) {
+	ta := newTestApp(t)
+	owner, _ := ta.signup(t)
+
+	code, env, raw := owner.do(http.MethodGet, "/training/progress", nil)
+	expect(t, "progresso inicial", code, http.StatusOK, raw)
+	status := decode[map[string]any](t, env)
+	if status["progress_pct"].(float64) != 0 || status["next_lesson"].(string) != "prodist-balanco" {
+		t.Fatalf("progresso inicial inesperado: %s", env.Data)
+	}
+
+	code, env, raw = owner.do(http.MethodPut, "/training/progress/prodist-balanco", map[string]any{"quiz_score": 50})
+	expect(t, "concluir lição", code, http.StatusOK, raw)
+	code, env, raw = owner.do(http.MethodPut, "/training/progress/prodist-balanco", map[string]any{"quiz_score": 100})
+	expect(t, "refazer quiz", code, http.StatusOK, raw)
+	status = decode[map[string]any](t, env)
+	completed := status["completed"].([]any)
+	if len(completed) != 1 || completed[0].(map[string]any)["quiz_score"].(float64) != 100 || status["progress_pct"].(float64) != 10 {
+		t.Fatalf("progresso após concluir: %s", env.Data)
+	}
+
+	code, _, raw = owner.do(http.MethodPut, "/training/progress/nao-existe", nil)
+	expect(t, "lição desconhecida", code, http.StatusUnprocessableEntity, raw)
+	code, _, raw = owner.do(http.MethodPut, "/training/progress/mapa", map[string]any{"quiz_score": 101})
+	expect(t, "nota inválida", code, http.StatusUnprocessableEntity, raw)
+
+	code, env, raw = owner.do(http.MethodGet, "/training/team", nil)
+	expect(t, "equipe", code, http.StatusOK, raw)
+	team := decode[map[string]any](t, env)
+	if team["total_lessons"].(float64) != 10 || len(team["members"].([]any)) != 1 {
+		t.Fatalf("equipe inesperada: %s", env.Data)
+	}
+
+	// outro usuário do mesmo tenant tem progresso próprio e não vê a equipe
+	email := "viewer-" + uuid.New().String()[:8] + "@example.com"
+	code, env, raw = owner.do(http.MethodPost, "/invites", map[string]string{"email": email, "role": "VIEWER"})
+	expect(t, "convite", code, http.StatusCreated, raw)
+	token := decode[map[string]any](t, env)["token"].(string)
+	viewer := &session{t: t, base: owner.base}
+	code, env, raw = viewer.do(http.MethodPost, "/invites/"+token+"/accept", map[string]string{"name": "Viewer", "password": "senhaForte123"})
+	expect(t, "aceitar convite", code, http.StatusOK, raw)
+	viewer.token = decode[map[string]any](t, env)["token"].(string)
+	code, env, raw = viewer.do(http.MethodGet, "/training/progress", nil)
+	expect(t, "progresso do viewer", code, http.StatusOK, raw)
+	if decode[map[string]any](t, env)["progress_pct"].(float64) != 0 {
+		t.Fatalf("viewer herdou progresso do owner: %s", env.Data)
+	}
+	code, _, raw = viewer.do(http.MethodGet, "/training/team", nil)
+	expect(t, "viewer equipe", code, http.StatusForbidden, raw)
+
+	code, env, raw = owner.do(http.MethodDelete, "/training/progress/prodist-balanco", nil)
+	expect(t, "desfazer", code, http.StatusOK, raw)
+	if decode[map[string]any](t, env)["progress_pct"].(float64) != 0 {
+		t.Fatalf("lição não foi desfeita: %s", env.Data)
+	}
 }

@@ -92,8 +92,8 @@ func TestTemplateLoader_Render_Stage3(t *testing.T) {
 
 func TestGetDunningTemplateName(t *testing.T) {
 	tests := []struct {
-		stage     int
-		expected  string
+		stage    int
+		expected string
 	}{
 		{1, "dunning_stage_1"},
 		{2, "dunning_stage_2"},

@@ -19,6 +19,8 @@
         </div>
 
         <!-- Alert Banner -->
+        <p style="margin: 24px 0 0; color: #1e1e2e; font-size: 15px;">Olá, <strong>{{.tenant_name}}</strong>.</p>
+
         <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 16px; margin: 24px 0;">
             <div style="display: flex; align-items: flex-start; gap: 12px;">
                 <div style="flex-shrink: 0; width: 24px; height: 24px; background: #f59e0b; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
@@ -59,7 +61,7 @@
 
         <!-- Action Button -->
         <div style="text-align: center; margin: 32px 0;">
-            <a href="{{.BillingURL}}" style="display: inline-block; background: linear-gradient(135deg, #1a7a4a 0%, #0d5a35 100%); color: white; padding: 16px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; box-shadow: 0 4px 14px rgba(26, 122, 74, 0.3);">
+            <a href="{{.billing_url}}" style="display: inline-block; background: linear-gradient(135deg, #1a7a4a 0%, #0d5a35 100%); color: white; padding: 16px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; box-shadow: 0 4px 14px rgba(26, 122, 74, 0.3);">
                 Regularizar pagamento agora
             </a>
             <p style="margin: 16px 0 0; color: #64748b; font-size: 14px;">Opções: PIX, Boleto ou Cartão de crédito</p>

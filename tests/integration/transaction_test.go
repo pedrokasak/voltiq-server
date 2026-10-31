@@ -17,14 +17,14 @@ import (
 // Note: In production, use a separate test database
 func setupTestDB(t *testing.T) (*repository.Database, func()) {
 	ctx := context.Background()
-	
+
 	db, err := repository.NewDatabase(ctx)
 	if err != nil {
 		// Try alternative connection string
 		db, err = repository.NewDatabase(ctx)
 		if err != nil {
 			t.Skip("Skipping integration test: database not available")
-			return nil, func(){}
+			return nil, func() {}
 		}
 	}
 
@@ -129,7 +129,7 @@ func TestConcurrentTransactions(t *testing.T) {
 			for j := 0; j < updatesPerGoroutine; j++ {
 				err := txManager.WithTransactionAndRetry(ctx, 3, func(tx pgx.Tx) error {
 					// Lock the row
-					_, err := tx.Exec(ctx, 
+					_, err := tx.Exec(ctx,
 						"UPDATE test_counter SET value = value + 1, version = version + 1 WHERE id = $1",
 						"00000000-0000-0000-0000-000000000001",
 					)
@@ -146,7 +146,7 @@ func TestConcurrentTransactions(t *testing.T) {
 
 	// Verify final count
 	var finalValue int
-	err = db.Pool.QueryRow(ctx, 
+	err = db.Pool.QueryRow(ctx,
 		"SELECT value FROM test_counter WHERE id = $1",
 		"00000000-0000-0000-0000-000000000001",
 	).Scan(&finalValue)
@@ -212,7 +212,7 @@ func TestOptimisticLock(t *testing.T) {
 
 	// Verify update
 	var data string
-	err = db.Pool.QueryRow(ctx, 
+	err = db.Pool.QueryRow(ctx,
 		"SELECT data FROM test_optimistic WHERE id = $1", testID,
 	).Scan(&data)
 
@@ -295,7 +295,7 @@ func TestBatchOperation(t *testing.T) {
 	// Test batch operations
 	err = txManager.WithTransaction(ctx, func(tx pgx.Tx) error {
 		batch := repository.NewBatchOperation(tx)
-		
+
 		operations := []func(pgx.Tx) error{
 			func(tx pgx.Tx) error {
 				_, err := tx.Exec(ctx, "INSERT INTO test_batch (id, value) VALUES ($1, $2)",
@@ -380,12 +380,12 @@ func TestRetryLogic(t *testing.T) {
 
 	err := txManager.WithTransactionAndRetry(ctx, maxAttempts, func(tx pgx.Tx) error {
 		attemptCount++
-		
+
 		// Simulate deadlock on first attempt
 		if attemptCount < 2 {
 			return newTestError("deadlock detected")
 		}
-		
+
 		return nil
 	})
 

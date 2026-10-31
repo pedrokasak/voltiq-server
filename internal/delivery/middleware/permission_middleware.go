@@ -3,8 +3,8 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/delivery/request"
+	"github.com/voltiq/server/internal/domain"
 )
 
 // RequirePermission middleware verifica se o usuário tem uma permissão específica
@@ -18,17 +18,11 @@ func RequirePermission(permission string) func(http.Handler) http.Handler {
 				return
 			}
 
-			hasPermission := false
-			for _, p := range domain.RolePermissions[domain.UserRole(role)] {
-				if domain.Permission(permission) == p {
-					hasPermission = true
-					break
-				}
-			}
+			hasPermission := domain.HasPermission(domain.UserRole(role), domain.Permission(permission))
 
 			if !hasPermission {
 				request.WriteJSON(w, http.StatusForbidden,
-					request.Fail("FORBIDDEN", "access denied: permission required", nil))
+					request.Fail("FORBIDDEN", "permissão insuficiente para esta operação", nil))
 				return
 			}
 
@@ -58,7 +52,7 @@ func RequireAnyPermission(permissions ...string) func(http.Handler) http.Handler
 
 			if !hasPermission {
 				request.WriteJSON(w, http.StatusForbidden,
-					request.Fail("FORBIDDEN", "access denied: insufficient permissions", nil))
+					request.Fail("FORBIDDEN", "permissão insuficiente para esta operação", nil))
 				return
 			}
 

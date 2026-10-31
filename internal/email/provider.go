@@ -32,10 +32,10 @@ type SendTemplateEmailInput struct {
 
 // EmailConfig holds email configuration
 type EmailConfig struct {
-	Provider    string // "resend", "sendgrid", "ses"
-	APIKey      string
-	FromEmail   string
-	FromName    string
-	ReplyTo     string
-	BaseURL     string // For links in templates
+	Provider  string // "resend", "sendgrid", "ses"
+	APIKey    string
+	FromEmail string
+	FromName  string
+	ReplyTo   string
+	BaseURL   string // For links in templates
 }

@@ -1,20 +1,21 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
-
-	"github.com/go-chi/chi/v5"
+	"strconv"
+	"strings"
 
 	"github.com/voltiq/server/internal/delivery/middleware"
 	"github.com/voltiq/server/internal/delivery/request"
 	"github.com/voltiq/server/internal/domain"
+	"github.com/voltiq/server/internal/ingestion"
 	"github.com/voltiq/server/internal/usecase"
 )
 
 // ConsumingUnitHandler handles consuming unit HTTP requests
 type ConsumingUnitHandler struct {
-	ucUseCase *usecase.ConsumingUnitUseCase
+	ucUseCase      *usecase.ConsumingUnitUseCase
+	registryImport *usecase.RegistryImportUseCase
 }
 
 // CreateConsumingUnitRequest represents a consuming unit creation request
@@ -23,157 +24,199 @@ type CreateConsumingUnitRequest struct {
 	UCCode        string `json:"uc_code"`
 	Name          string `json:"name"`
 	Class         string `json:"class"`
-	Active        bool   `json:"active"`
+	Active        *bool  `json:"active"`
 }
 
-// UpdateConsumingUnitRequest represents a consuming unit update request
+// UpdateConsumingUnitRequest is a partial update: omitted fields are kept.
 type UpdateConsumingUnitRequest struct {
-	TransformerID string `json:"transformer_id"`
-	UCCode        string `json:"uc_code"`
-	Name          string `json:"name"`
-	Class         string `json:"class"`
-	Active        bool   `json:"active"`
+	TransformerID *string `json:"transformer_id"`
+	UCCode        *string `json:"uc_code"`
+	Name          *string `json:"name"`
+	Class         *string `json:"class"`
+	Active        *bool   `json:"active"`
 }
 
 // NewConsumingUnitHandler creates a new ConsumingUnitHandler
-func NewConsumingUnitHandler(ucUseCase *usecase.ConsumingUnitUseCase) *ConsumingUnitHandler {
-	return &ConsumingUnitHandler{
-		ucUseCase: ucUseCase,
+func NewConsumingUnitHandler(ucUseCase *usecase.ConsumingUnitUseCase, registryImport *usecase.RegistryImportUseCase) *ConsumingUnitHandler {
+	return &ConsumingUnitHandler{ucUseCase: ucUseCase, registryImport: registryImport}
+}
+
+// parseClass accepts the domain enum or the Portuguese names of the SDD.
+func parseClass(raw string) (*domain.UCClass, bool) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, true
 	}
+	if c := domain.UCClass(strings.ToUpper(raw)); domain.ValidUCClass(c) {
+		return &c, true
+	}
+	return ingestion.ParseUCClass(raw)
+}
+
+func invalidClass(w http.ResponseWriter) {
+	request.WriteJSON(w, http.StatusUnprocessableEntity, request.Fail("VALIDATION_ERROR", "dados inválidos",
+		[]domain.FieldError{{Field: "class", Message: "classe inválida"}}))
 }
 
 // Create handles consuming unit creation
 func (h *ConsumingUnitHandler) Create(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-
 	var req CreateConsumingUnitRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "invalid request body", nil))
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	class, ok := parseClass(req.Class)
+	if !ok {
+		invalidClass(w)
+		return
+	}
+	if req.TransformerID != "" && !isUUID(req.TransformerID) {
+		request.WriteJSON(w, http.StatusUnprocessableEntity, request.Fail("VALIDATION_ERROR", "dados inválidos",
+			[]domain.FieldError{{Field: "transformer_id", Message: "transformador não encontrado"}}))
 		return
 	}
 
-	if req.UCCode == "" || req.TransformerID == "" {
-		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "uc_code and transformer_id are required", nil))
-		return
-	}
-
-	ucClass := domain.UCClassResidential
-	if req.Class != "" {
-		ucClass = domain.UCClass(req.Class)
-	}
-
-	uc, err := h.ucUseCase.CreateConsumingUnit(r.Context(), usecase.CreateConsumingUnitInput{
-		TenantID:      tenantID,
+	unit, err := h.ucUseCase.CreateConsumingUnit(r.Context(), usecase.CreateConsumingUnitInput{
+		TenantID:      middleware.GetTenantID(r.Context()),
 		TransformerID: domain.UUID(req.TransformerID),
 		UCCode:        req.UCCode,
 		Name:          req.Name,
-		Class:         ucClass,
+		Class:         class,
 		Active:        req.Active,
 	})
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("CREATE_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "CREATE_ERROR")
 		return
 	}
 
-	request.WriteJSON(w, http.StatusCreated, request.Success(uc, "consuming unit created successfully"))
+	request.WriteJSON(w, http.StatusCreated, request.Success(unit, "consuming unit created successfully"))
 }
 
 // GetByID handles getting a consuming unit by ID
 func (h *ConsumingUnitHandler) GetByID(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "id is required", nil))
+	id, ok := pathUUID(w, r, "id")
+	if !ok {
 		return
 	}
-
-	uc, err := h.ucUseCase.GetConsumingUnitByID(r.Context(), domain.UUID(id))
+	unit, err := h.ucUseCase.GetConsumingUnitByID(r.Context(), id)
 	if err != nil {
-		request.WriteJSON(w, http.StatusNotFound, request.Fail("NOT_FOUND", "consuming unit not found", nil))
+		writeUseCaseError(w, err, "GET_ERROR")
 		return
 	}
-
-	request.WriteJSON(w, http.StatusOK, request.Success(uc, ""))
+	request.WriteJSON(w, http.StatusOK, request.Success(unit, ""))
 }
 
 // List handles listing all consuming units for a tenant
 func (h *ConsumingUnitHandler) List(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-
-	ucs, err := h.ucUseCase.ListConsumingUnits(r.Context(), tenantID)
+	// Paginado (?search=&limit=&offset=, padrao 100, maximo 1000; total em
+	// X-Total-Count): com 100 mil UCs a lista completa passava de 30 MB.
+	limit := min(max(queryInt(r, "limit", 100), 1), 1000)
+	offset := max(queryInt(r, "offset", 0), 0)
+	units, total, err := h.ucUseCase.ListConsumingUnitsPage(r.Context(), middleware.GetTenantID(r.Context()),
+		strings.TrimSpace(r.URL.Query().Get("search")), limit, offset)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("LIST_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "LIST_ERROR")
 		return
 	}
-
-	request.WriteJSON(w, http.StatusOK, request.Success(ucs, ""))
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
+	request.WriteJSON(w, http.StatusOK, request.Success(units, ""))
 }
 
 // ListByTransformer handles listing consuming units by transformer
 func (h *ConsumingUnitHandler) ListByTransformer(w http.ResponseWriter, r *http.Request) {
-	transformerID := chi.URLParam(r, "transformer_id")
-	if transformerID == "" {
-		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "transformer_id is required", nil))
+	transformerID, ok := pathUUID(w, r, "transformer_id")
+	if !ok {
 		return
 	}
-
-	ucs, err := h.ucUseCase.ListConsumingUnitsByTransformer(r.Context(), domain.UUID(transformerID))
+	units, err := h.ucUseCase.ListConsumingUnitsByTransformer(r.Context(), transformerID)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("LIST_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "LIST_ERROR")
 		return
 	}
-
-	request.WriteJSON(w, http.StatusOK, request.Success(ucs, ""))
+	request.WriteJSON(w, http.StatusOK, request.Success(units, ""))
 }
 
-// Update handles consuming unit update
+// Update handles a partial consuming unit update
 func (h *ConsumingUnitHandler) Update(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "id is required", nil))
+	id, ok := pathUUID(w, r, "id")
+	if !ok {
 		return
 	}
-
 	var req UpdateConsumingUnitRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "invalid request body", nil))
+	if !decodeJSON(w, r, &req) {
 		return
 	}
-
-	ucClass := domain.UCClassResidential
-	if req.Class != "" {
-		ucClass = domain.UCClass(req.Class)
+	in := usecase.UpdateConsumingUnitInput{ID: id, UCCode: req.UCCode, Name: req.Name, Active: req.Active}
+	if req.Class != nil {
+		class, ok := parseClass(*req.Class)
+		if !ok {
+			invalidClass(w)
+			return
+		}
+		in.Class = class
+	}
+	if req.TransformerID != nil {
+		if !isUUID(*req.TransformerID) {
+			request.WriteJSON(w, http.StatusUnprocessableEntity, request.Fail("VALIDATION_ERROR", "dados inválidos",
+				[]domain.FieldError{{Field: "transformer_id", Message: "transformador não encontrado"}}))
+			return
+		}
+		tid := domain.UUID(*req.TransformerID)
+		in.TransformerID = &tid
 	}
 
-	uc, err := h.ucUseCase.UpdateConsumingUnit(r.Context(), usecase.UpdateConsumingUnitInput{
-		ID:            domain.UUID(id),
-		TransformerID: domain.UUID(req.TransformerID),
-		UCCode:        req.UCCode,
-		Name:          req.Name,
-		Class:         ucClass,
-		Active:        req.Active,
-	})
+	unit, err := h.ucUseCase.UpdateConsumingUnit(r.Context(), in)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("UPDATE_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "UPDATE_ERROR")
 		return
 	}
-
-	request.WriteJSON(w, http.StatusOK, request.Success(uc, "consuming unit updated successfully"))
+	request.WriteJSON(w, http.StatusOK, request.Success(unit, "consuming unit updated successfully"))
 }
 
 // Delete handles consuming unit deletion (soft delete)
 // NOTE: This performs a soft delete by updating deleted_at, it does NOT remove the record from the database
 // Following SDD 04-DESIGN-DETALHADO/01-modelo-de-dados.md convention
 func (h *ConsumingUnitHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		request.WriteJSON(w, http.StatusBadRequest, request.Fail("VALIDATION_ERROR", "id is required", nil))
+	id, ok := pathUUID(w, r, "id")
+	if !ok {
 		return
 	}
-
-	if err := h.ucUseCase.DeleteConsumingUnit(r.Context(), domain.UUID(id)); err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("DELETE_ERROR", err.Error(), nil))
+	if err := h.ucUseCase.DeleteConsumingUnit(r.Context(), id); err != nil {
+		writeUseCaseError(w, err, "DELETE_ERROR")
 		return
 	}
-
 	request.WriteJSON(w, http.StatusOK, request.Success(nil, "consuming unit deleted successfully"))
+}
+
+// Consumption returns the monthly consumption history of a UC (?months=12).
+func (h *ConsumingUnitHandler) Consumption(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	hist, err := h.ucUseCase.GetConsumptionHistory(r.Context(), id, queryInt(r, "months", 12))
+	if err != nil {
+		writeUseCaseError(w, err, "CONSUMPTION_ERROR")
+		return
+	}
+	request.WriteJSON(w, http.StatusOK, request.Success(hist, ""))
+}
+
+// Import imports the consuming unit registry from a CSV/XLSX file.
+func (h *ConsumingUnitHandler) Import(w http.ResponseWriter, r *http.Request) {
+	in, ok := readRegistryUpload(w, r)
+	if !ok {
+		return
+	}
+	in.Kind = usecase.RegistryConsumingUnits
+	in.TenantID = middleware.GetTenantID(r.Context())
+	in.UserID = middleware.GetUserID(r.Context())
+	out, err := h.registryImport.Import(r.Context(), in)
+	if err != nil {
+		writeUseCaseError(w, err, "IMPORT_ERROR")
+		return
+	}
+	status := http.StatusOK
+	if !in.DryRun && out.Created > 0 {
+		status = http.StatusCreated
+	}
+	request.WriteJSON(w, status, request.Success(out, out.Message))
 }

@@ -2,8 +2,12 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/voltiq/server/internal/domain"
@@ -14,16 +18,16 @@ import (
 
 // BillingUseCase handles billing operations
 type BillingUseCase struct {
-	tenantRepo       *repository.TenantRepository
-	userRepo         *repository.UserRepository
-	paymentProvider  payment.PaymentProvider
-	webhookRepo      *repository.WebhookEventRepository
-	dunningRepo      *repository.DunningRepository
-	metricsRepo      *repository.MetricsRepository
-	prorationRepo    *repository.ProrationRepository
-	emailProvider    email.EmailProvider
-	emailTemplates   *email.TemplateLoader
-	planConfigs      map[domain.TenantPlan]payment.PlanConfig
+	tenantRepo      *repository.TenantRepository
+	userRepo        *repository.UserRepository
+	paymentProvider payment.PaymentProvider
+	webhookRepo     *repository.WebhookEventRepository
+	dunningRepo     *repository.DunningRepository
+	metricsRepo     *repository.MetricsRepository
+	prorationRepo   *repository.ProrationRepository
+	emailProvider   email.EmailProvider
+	emailTemplates  *email.TemplateLoader
+	planConfigs     map[domain.TenantPlan]payment.PlanConfig
 }
 
 // NewBillingUseCase creates a new BillingUseCase
@@ -89,9 +93,9 @@ func (uc *BillingUseCase) GetBillingInfo(ctx context.Context, tenantID domain.UU
 
 // BillingInfo holds billing information for a tenant
 type BillingInfo struct {
-	Tenant       *domain.Tenant
-	Customer     *payment.Customer
-	Subscription *payment.Subscription
+	Tenant       *domain.Tenant        `json:"tenant"`
+	Customer     *payment.Customer     `json:"customer"`
+	Subscription *payment.Subscription `json:"subscription"`
 }
 
 // ActivatePlan activates a plan for a tenant (creates customer + subscription)
@@ -135,15 +139,15 @@ func (uc *BillingUseCase) ActivatePlan(ctx context.Context, tenantID domain.UUID
 	if customer == nil {
 		// Create new customer
 		customerInput := payment.CreateCustomerInput{
-			ExternalID:     string(tenantID),
-			Name:           owner.Name,
-			Email:          owner.Email,
-			Document:       tenant.Document,
-			Phone:          "", // User doesn't have phone field yet
-			Address:        tenant.Address,
-			AddressNumber:  tenant.AddressNumber,
-			Province:       tenant.Province,
-			PostalCode:     tenant.PostalCode,
+			ExternalID:    string(tenantID),
+			Name:          owner.Name,
+			Email:         owner.Email,
+			Document:      tenant.Document,
+			Phone:         "", // User doesn't have phone field yet
+			Address:       tenant.Address,
+			AddressNumber: tenant.AddressNumber,
+			Province:      tenant.Province,
+			PostalCode:    tenant.PostalCode,
 			Metadata: map[string]string{
 				"tenant_id": string(tenantID),
 			},
@@ -213,6 +217,9 @@ func (uc *BillingUseCase) ActivatePlan(ctx context.Context, tenantID domain.UUID
 		Subscription: subscription,
 	}, nil
 }
+
+// minChargeCents is the smallest charge accepted by Asaas (R$ 5,00).
+const minChargeCents = 500
 
 // ChangePlan changes the tenant's plan with proration support
 func (uc *BillingUseCase) ChangePlan(ctx context.Context, tenantID domain.UUID, newPlan domain.TenantPlan) (*BillingInfo, error) {
@@ -293,17 +300,30 @@ func (uc *BillingUseCase) ChangePlan(ctx context.Context, tenantID domain.UUID, 
 		return nil, err
 	}
 
-	// Handle immediate payment for upgrade (TODO: implement when Asaas CreatePayment is ready)
-	// if reason == "upgrade" && amountCents < 0 {
-	// 	_ = uc.paymentProvider.CreatePayment(ctx, payment.CreatePaymentInput{
-	// 		CustomerID:       currentSub.CustomerID,
-	// 		Value:            float64(-amountCents) / 100,
-	// 		BillingType:      currentSub.BillingType,
-	// 		Description:      fmt.Sprintf("Proration charge for upgrade from %s to %s", currentSub.Description, planConfig.Description),
-	// 		DueDate:          time.Now(),
-	// 		ExternalReference: proration.ID,
-	// 	})
-	// }
+	// Upgrade no meio do ciclo: cobra a diferenca proporcional na hora.
+	// Valores abaixo do minimo do Asaas (R$ 5,00) ficam como credito pendente
+	// e entram na proxima fatura.
+	if reason == "upgrade" && amountCents < -minChargeCents {
+		billingType := currentSub.BillingType
+		if billingType == "" {
+			billingType = payment.BillingTypeUndefined
+		}
+		charge, err := uc.paymentProvider.CreatePayment(ctx, payment.CreatePaymentInput{
+			CustomerID:        currentSub.CustomerID,
+			Value:             float64(-amountCents) / 100,
+			BillingType:       billingType,
+			Description:       fmt.Sprintf("Diferença proporcional do upgrade para %s (%d dias)", planConfig.Description, daysCalculated),
+			DueDate:           time.Now().AddDate(0, 0, 1),
+			ExternalReference: proration.ID,
+		})
+		if err != nil {
+			slog.Error("proration charge failed", "tenant_id", tenantID, "error", err)
+		} else if charge != nil && proration.ID != "" {
+			if err := uc.prorationRepo.MarkApplied(ctx, proration.ID, charge.ID); err != nil {
+				slog.Error("failed to mark proration applied", "tenant_id", tenantID, "error", err)
+			}
+		}
+	}
 
 	// Update subscription in payment provider
 	subInput := payment.UpdateSubscriptionInput{
@@ -603,23 +623,32 @@ func (uc *BillingUseCase) sendDunningEmail(ctx context.Context, pending *reposit
 		return fmt.Errorf("tenant name not available")
 	}
 
-	// Get tenant for plan info
-	tenant, err := uc.tenantRepo.GetByID(ctx, domain.UUID(pending.TenantID))
-	if err != nil {
-		return err
-	}
-	if tenant == nil {
-		return fmt.Errorf("tenant not found")
+	// Plano do tenant para o valor da cobranca (padrao: starter)
+	plan := domain.TenantPlanStarter
+	if uc.tenantRepo != nil {
+		tenant, err := uc.tenantRepo.GetByID(ctx, domain.UUID(pending.TenantID))
+		if err != nil {
+			return err
+		}
+		if tenant == nil {
+			return fmt.Errorf("tenant not found")
+		}
+		plan = tenant.Plan
 	}
 
-	planConfig, ok := uc.planConfigs[tenant.Plan]
+	planConfig, ok := uc.planConfigs[plan]
 	if !ok {
 		planConfig = payment.PlanConfig{
-			ProviderPlanID: string(tenant.Plan),
+			ProviderPlanID: string(plan),
 			Value:          99.00,
-			Description:    string(tenant.Plan),
+			Description:    string(plan),
 		}
 	}
+	billingURL := strings.TrimRight(os.Getenv("DASHBOARD_URL"), "/")
+	if billingURL == "" {
+		billingURL = "https://app.voltiq.com.br"
+	}
+	billingURL += "/billing"
 
 	// Build template data
 	data := email.BuildDunningTemplateData(email.DunningEmailData{
@@ -627,8 +656,8 @@ func (uc *BillingUseCase) sendDunningEmail(ctx context.Context, pending *reposit
 		PlanName:     planConfig.Description,
 		Amount:       fmt.Sprintf("R$ %.2f", planConfig.Value),
 		DueDate:      time.Now().AddDate(0, 0, -int(stage)*7).Format("02/01/2006"), // Approximate
-		DaysOverdue:  stage * 7, // Approximate
-		BillingURL:   "https://app.voltiq.com.br/billing",
+		DaysOverdue:  stage * 7,                                                    // Approximate
+		BillingURL:   billingURL,
 		SupportEmail: "suporte@voltiq.com.br",
 		CompanyName:  "Voltiq Software",
 		Stage:        stage,
@@ -648,7 +677,7 @@ func (uc *BillingUseCase) sendDunningEmail(ctx context.Context, pending *reposit
 		To:       []string{*pending.TenantEmail},
 		Subject:  subject,
 		HTMLBody: htmlBody,
-		TextBody: fmt.Sprintf("%s\n\nAcesse: https://app.voltiq.com.br/billing para regularizar.", subject),
+		TextBody: fmt.Sprintf("%s\n\nAcesse: %s para regularizar.", subject, billingURL),
 	})
 }
 
@@ -680,4 +709,91 @@ func (uc *BillingUseCase) GetDunningHistory(ctx context.Context, tenantID domain
 // Helper
 func newTimePtr(t time.Time) *time.Time {
 	return &t
+}
+
+// ErrPaymentNotFound is returned when a payment does not belong to the tenant.
+var ErrPaymentNotFound = errors.New("payment not found")
+
+// tenantPayment loads a payment and checks it belongs to the tenant.
+func (uc *BillingUseCase) tenantPayment(ctx context.Context, tenantID domain.UUID, paymentID string) (*payment.Payment, error) {
+	if uc.paymentProvider == nil {
+		return nil, ErrPaymentProviderError
+	}
+	tenant, err := uc.tenantRepo.GetByID(ctx, tenantID)
+	if err != nil || tenant == nil {
+		return nil, ErrTenantNotFound
+	}
+	if tenant.PaymentCustomerID == nil || *tenant.PaymentCustomerID == "" {
+		return nil, ErrPaymentNotFound
+	}
+	p, err := uc.paymentProvider.GetPayment(ctx, paymentID)
+	if err != nil || p == nil || p.CustomerID != *tenant.PaymentCustomerID {
+		return nil, ErrPaymentNotFound
+	}
+	return p, nil
+}
+
+// PaymentLink returns the invoice or boleto URL of a tenant payment.
+func (uc *BillingUseCase) PaymentLink(ctx context.Context, tenantID domain.UUID, paymentID, kind string) (string, error) {
+	p, err := uc.tenantPayment(ctx, tenantID, paymentID)
+	if err != nil {
+		return "", err
+	}
+	url := p.InvoiceURL
+	if kind == "boleto" {
+		url = p.BankSlipURL
+	}
+	if url == "" {
+		return "", ErrPaymentNotFound
+	}
+	return url, nil
+}
+
+// PixQRCode returns the PIX QR code of a tenant payment.
+func (uc *BillingUseCase) PixQRCode(ctx context.Context, tenantID domain.UUID, paymentID string) (*payment.PixQRCode, error) {
+	if _, err := uc.tenantPayment(ctx, tenantID, paymentID); err != nil {
+		return nil, err
+	}
+	pp, ok := uc.paymentProvider.(payment.PixProvider)
+	if !ok {
+		return nil, ErrPaymentProviderError
+	}
+	return pp.GetPixQRCode(ctx, paymentID)
+}
+
+// RetryFailedWebhooks reprocessa eventos de webhook que falharam (ate 3 dias
+// apos o recebimento). Retorna quantos foram processados com sucesso.
+func (uc *BillingUseCase) RetryFailedWebhooks(ctx context.Context) (int, error) {
+	events, err := uc.webhookRepo.GetPendingRetries(ctx, "asaas", time.Now().Add(-5*time.Minute))
+	if err != nil {
+		return 0, err
+	}
+	ok := 0
+	for _, ev := range events {
+		if ev.Payload == nil && len(ev.Raw) > 0 {
+			var body map[string]any
+			if err := json.Unmarshal(ev.Raw, &body); err == nil {
+				// O corpo do Asaas traz {event, payment|subscription}; o
+				// processamento le os campos do objeto principal.
+				if p, isMap := body["payment"].(map[string]any); isMap {
+					ev.Payload = p
+				} else if s, isMap := body["subscription"].(map[string]any); isMap {
+					ev.Payload = s
+				} else {
+					ev.Payload = body
+				}
+			}
+		}
+		if err := uc.processWebhookEvent(ctx, ev); err != nil {
+			if mErr := uc.webhookRepo.MarkFailed(ctx, "asaas", ev.ID, err.Error()); mErr != nil {
+				return ok, mErr
+			}
+			continue
+		}
+		if err := uc.webhookRepo.MarkProcessed(ctx, "asaas", ev.ID); err != nil {
+			return ok, err
+		}
+		ok++
+	}
+	return ok, nil
 }

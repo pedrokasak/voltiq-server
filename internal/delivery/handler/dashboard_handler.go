@@ -1,40 +1,45 @@
 package handler
 
 import (
-	"context"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/voltiq/server/internal/delivery/middleware"
 	"github.com/voltiq/server/internal/delivery/request"
 	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/repository"
+	"github.com/voltiq/server/internal/usecase"
 )
 
-// DashboardHandler handles dashboard HTTP requests
+// DashboardHandler handles dashboard HTTP requests. Every query runs with
+// the request context so repositories keep the tenant scope.
 type DashboardHandler struct {
-	transformerRepo *repository.TransformerRepository
-	balanceRepo     *repository.BalanceRepository
-	ucRepo          *repository.ConsumingUnitRepository
+	dashboard   *usecase.DashboardUseCase
+	balanceRepo *repository.BalanceRepository
 }
 
 // TransformerCurrentStatus represents the current status of a transformer for quick dashboard
 type TransformerCurrentStatus struct {
-	TransformerID   string             `json:"transformer_id"`
-	Code            string             `json:"code"`
-	Status          domain.BalanceStatus `json:"status"`
-	LossPct         float64            `json:"loss_pct"`
-	LossLimitPct    float64            `json:"loss_limit_pct"`
-	EnergyInjectedKWh float64          `json:"energy_injected_kwh"`
-	TotalConsumptionKWh float64        `json:"total_consumption_kwh"`
-	LossKWh         float64            `json:"loss_kwh"`
-	UCCount         int                `json:"uc_count"`
-	PeriodStart     time.Time          `json:"period_start"`
-	PeriodEnd       time.Time          `json:"period_end"`
-	CalculatedAt    time.Time          `json:"calculated_at"`
-	IsOverloaded    bool               `json:"is_overloaded"`
-	OverloadPct     float64            `json:"overload_pct"`
+	TransformerID       string     `json:"transformer_id"`
+	Code                string     `json:"code"`
+	SubstationName      *string    `json:"substation_name"`
+	Status              string     `json:"status"`
+	LossPct             float64    `json:"loss_pct"`
+	LossLimitPct        float64    `json:"loss_limit_pct"`
+	EnergyInjectedKWh   float64    `json:"energy_injected_kwh"`
+	TotalConsumptionKWh float64    `json:"total_consumption_kwh"`
+	LossKWh             float64    `json:"loss_kwh"`
+	UCCount             int        `json:"uc_count"`
+	PeriodStart         *time.Time `json:"period_start"`
+	PeriodEnd           *time.Time `json:"period_end"`
+	CalculatedAt        *time.Time `json:"calculated_at"`
+	LastReadingAt       *time.Time `json:"last_reading_at"`
+	IsOverloaded        bool       `json:"is_overloaded"`
+	OverloadPct         float64    `json:"overload_pct"`
+	HasBalance          bool       `json:"has_balance"`
 }
 
 // DashboardKPIs contains dashboard key performance indicators
@@ -44,468 +49,309 @@ type DashboardKPIs struct {
 	TransformersNormal   int     `json:"transformers_normal"`
 	TransformersWarning  int     `json:"transformers_warning"`
 	TransformersCritical int     `json:"transformers_critical"`
+	TransformersNoData   int     `json:"transformers_no_data"`
 	AverageLossPct       float64 `json:"average_loss_pct"`
+	WeightedLossPct      float64 `json:"weighted_loss_pct"`
 	TotalEnergyKWh       float64 `json:"total_energy_kwh"`
 	TotalBilledKWh       float64 `json:"total_billed_kwh"`
+	TotalLossKWh         float64 `json:"total_loss_kwh"`
 }
 
 // NewDashboardHandler creates a new DashboardHandler
-func NewDashboardHandler(
-	transformerRepo *repository.TransformerRepository,
-	balanceRepo *repository.BalanceRepository,
-	ucRepo *repository.ConsumingUnitRepository,
-) *DashboardHandler {
-	return &DashboardHandler{
-		transformerRepo: transformerRepo,
-		balanceRepo:     balanceRepo,
-		ucRepo:          ucRepo,
-	}
+func NewDashboardHandler(dashboard *usecase.DashboardUseCase, balanceRepo *repository.BalanceRepository) *DashboardHandler {
+	return &DashboardHandler{dashboard: dashboard, balanceRepo: balanceRepo}
 }
 
-// GetKPIs returns dashboard KPIs
+func canViewFinancial(r *http.Request) bool {
+	return middleware.CanViewFinancialData(domain.UserRole(middleware.GetUserRole(r.Context())))
+}
+
+func queryFloat(r *http.Request, name string) float64 {
+	v, err := strconv.ParseFloat(strings.Replace(r.URL.Query().Get(name), ",", ".", 1), 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// GetKPIs returns dashboard KPIs computed from the latest balance of each
+// transformer (single query).
 func (h *DashboardHandler) GetKPIs(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-
-	ctx := context.Background()
-
-	// Get all transformers for tenant
-	transformers, err := h.transformerRepo.GetByTenant(ctx, tenantID)
+	items, err := h.dashboard.Summaries(r.Context(), middleware.GetTenantID(r.Context()), repository.TransformerFilter{})
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("LIST_ERROR", "failed to get transformers", nil))
+		writeUseCaseError(w, err, "KPI_ERROR")
 		return
 	}
-
-	// Get all UCs for tenant
-	ucs, err := h.ucRepo.GetByTenant(ctx, tenantID)
-	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("LIST_ERROR", "failed to get consuming units", nil))
-		return
-	}
-
-	// Calculate status for each transformer based on latest balance
-	transformersNormal := 0
-	transformersWarning := 0
-	transformersCritical := 0
-	totalLossPct := 0.0
-	balanceCount := 0
-	totalEnergyKWh := 0.0
-	totalBilledKWh := 0.0
-
-	for _, t := range transformers {
-		latestBalance, err := h.balanceRepo.GetLatestByTransformer(ctx, t.ID)
-		if err != nil {
+	k := &DashboardKPIs{TotalTransformers: len(items)}
+	var sumPct float64
+	var n int
+	for _, s := range items {
+		k.TotalUCs += s.UCCount
+		switch s.Status {
+		case "NORMAL":
+			k.TransformersNormal++
+		case "WARNING":
+			k.TransformersWarning++
+		case "CRITICAL":
+			k.TransformersCritical++
+		default:
+			k.TransformersNoData++
+		}
+		if s.LossPct == nil {
 			continue
 		}
-
-		if latestBalance != nil {
-			switch latestBalance.Status {
-			case domain.BalanceStatusNormal:
-				transformersNormal++
-			case domain.BalanceStatusWarning:
-				transformersWarning++
-			case domain.BalanceStatusCritical:
-				transformersCritical++
-			}
-
-			totalLossPct += latestBalance.LossPct
-			balanceCount++
-			totalEnergyKWh += latestBalance.EnergyInjectedKWh
-			totalBilledKWh += latestBalance.TotalConsumptionKWh
-		}
+		sumPct += *s.LossPct
+		n++
+		k.TotalEnergyKWh += deref(s.EnergyInjectedKWh)
+		k.TotalBilledKWh += deref(s.TotalConsumptionKWh)
+		k.TotalLossKWh += deref(s.LossKWh)
 	}
-
-	averageLossPct := 0.0
-	if balanceCount > 0 {
-		averageLossPct = totalLossPct / float64(balanceCount)
+	if n > 0 {
+		k.AverageLossPct = sumPct / float64(n)
 	}
-
-	kpis := &DashboardKPIs{
-		TotalTransformers:    len(transformers),
-		TotalUCs:             len(ucs),
-		TransformersNormal:   transformersNormal,
-		TransformersWarning:  transformersWarning,
-		TransformersCritical: transformersCritical,
-		AverageLossPct:       averageLossPct,
-		TotalEnergyKWh:       totalEnergyKWh,
-		TotalBilledKWh:       totalBilledKWh,
+	if k.TotalEnergyKWh > 0 {
+		k.WeightedLossPct = k.TotalLossKWh / k.TotalEnergyKWh * 100
 	}
+	request.WriteJSON(w, http.StatusOK, request.Success(k, ""))
+}
 
-	request.WriteJSON(w, http.StatusOK, request.Success(kpis, ""))
+func deref(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 // GetTransformerCurrentStatus returns the current status of all transformers for quick dashboard
 func (h *DashboardHandler) GetTransformerCurrentStatus(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-
-	ctx := context.Background()
-
-	// Get all transformers for tenant
-	transformers, err := h.transformerRepo.GetByTenant(ctx, tenantID)
+	items, err := h.dashboard.Summaries(r.Context(), middleware.GetTenantID(r.Context()), repository.TransformerFilter{
+		Status: strings.ToUpper(r.URL.Query().Get("status")), OrderBy: "loss_pct",
+	})
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("LIST_ERROR", "failed to get transformers", nil))
+		writeUseCaseError(w, err, "STATUS_ERROR")
 		return
 	}
-
-	var statuses []TransformerCurrentStatus
-
-	for _, t := range transformers {
-		latestBalance, err := h.balanceRepo.GetLatestByTransformer(ctx, t.ID)
-		if err != nil {
-			continue
+	items = items[:min(len(items), listLimit(r))]
+	out := make([]TransformerCurrentStatus, 0, len(items))
+	for _, p := range items {
+		limit := deref(p.LossLimitPct)
+		if limit <= 0 {
+			limit = 10
 		}
-
-		if latestBalance == nil {
-			// No balance calculated yet
-			lossLimit := 10.0
-			if t.LossLimitPct != nil {
-				lossLimit = *t.LossLimitPct
-			}
-			status := TransformerCurrentStatus{
-				TransformerID: string(t.ID),
-				Code:          t.Code,
-				Status:        domain.BalanceStatusNormal,
-				LossPct:       0,
-				LossLimitPct:  lossLimit,
-				UCCount:       0,
-			}
-			statuses = append(statuses, status)
-			continue
+		s := TransformerCurrentStatus{
+			TransformerID: string(p.ID), Code: p.Code, SubstationName: p.SubstationName, Status: p.Status,
+			LossPct: deref(p.LossPct), LossLimitPct: limit, EnergyInjectedKWh: deref(p.EnergyInjectedKWh),
+			TotalConsumptionKWh: deref(p.TotalConsumptionKWh), LossKWh: deref(p.LossKWh), UCCount: p.UCCount,
+			PeriodStart: p.LastPeriodStart, PeriodEnd: p.LastPeriodEnd, LastReadingAt: p.LastReadingAt,
+			HasBalance: p.LossPct != nil,
 		}
-
-		// Get loss limit from transformer
-		lossLimit := 10.0
-		if t.LossLimitPct != nil {
-			lossLimit = *t.LossLimitPct
+		if p.LossPct != nil {
+			s.OverloadPct = *p.LossPct / limit * 100
+			s.IsOverloaded = *p.LossPct >= limit
 		}
-
-		// Check if overloaded (loss exceeds limit)
-		limitPct := latestBalance.LossPct
-		if limitPct == 0 {
-			limitPct = lossLimit
-		}
-
-		overloadPct := 0.0
-		if limitPct > 0 {
-			overloadPct = (latestBalance.LossPct / limitPct) * 100
-		}
-
-		status := TransformerCurrentStatus{
-			TransformerID:       string(t.ID),
-			Code:                t.Code,
-			Status:              latestBalance.Status,
-			LossPct:             latestBalance.LossPct,
-			LossLimitPct:        lossLimit,
-			EnergyInjectedKWh:   latestBalance.EnergyInjectedKWh,
-			TotalConsumptionKWh: latestBalance.TotalConsumptionKWh,
-			LossKWh:             latestBalance.LossKWh,
-			UCCount:             latestBalance.UCCount,
-			PeriodStart:         latestBalance.PeriodStart,
-			PeriodEnd:           latestBalance.PeriodEnd,
-			CalculatedAt:        latestBalance.CalculatedAt,
-			IsOverloaded:        latestBalance.LossPct >= lossLimit,
-			OverloadPct:         overloadPct,
-		}
-		statuses = append(statuses, status)
+		out = append(out, s)
 	}
-
-	request.WriteJSON(w, http.StatusOK, request.Success(statuses, ""))
+	request.WriteJSON(w, http.StatusOK, request.Success(out, ""))
 }
 
-// GetMonthlyLossHistory returns monthly loss history for dashboard charts
+// listLimit reads ?limit= for the full-network listings (padrao 1000, maximo 10000).
+func listLimit(r *http.Request) int {
+	return min(max(queryInt(r, "limit", 1000), 1), 10000)
+}
+
+// GetMonthlyLossHistory returns the aggregated loss of the last 12 months
 func (h *DashboardHandler) GetMonthlyLossHistory(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-
-	ctx := context.Background()
-
-	// Get all transformers for tenant
-	transformers, err := h.transformerRepo.GetByTenant(ctx, tenantID)
+	aggs, err := h.balanceRepo.GetMonthlyAggregatesByTenant(r.Context(), middleware.GetTenantID(r.Context()), 12)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("LIST_ERROR", "failed to get transformers", nil))
+		writeUseCaseError(w, err, "HISTORY_ERROR")
 		return
 	}
-
-	// Simplified: just return aggregated data for all transformers
-	// In production, you'd query by month and aggregate
-	totalLossPct := 0.0
-	totalEnergyKWh := 0.0
-	totalBilledKWh := 0.0
-	balanceCount := 0
-
-	for _, t := range transformers {
-		balances, err := h.balanceRepo.GetByTransformerAndPeriod(ctx, t.ID, time.Now().AddDate(0, -12, 0), time.Now())
-		if err != nil {
-			continue
+	var injected, billed, loss float64
+	count := 0
+	months := make([]map[string]any, 0, len(aggs))
+	for _, a := range aggs {
+		injected += a.TotalEnergyInjected
+		billed += a.TotalConsumption
+		loss += a.TotalLoss
+		count += a.BalanceCount
+		lossPct := 0.0
+		if a.TotalEnergyInjected > 0 {
+			lossPct = a.TotalLoss / a.TotalEnergyInjected * 100
 		}
-
-		for _, b := range balances {
-			totalLossPct += b.LossPct
-			totalEnergyKWh += b.EnergyInjectedKWh
-			totalBilledKWh += b.TotalConsumptionKWh
-			balanceCount++
-		}
+		months = append(months, map[string]any{
+			"month": a.Month.Format("2006-01"), "energy_injected_kwh": a.TotalEnergyInjected,
+			"total_consumption_kwh": a.TotalConsumption, "loss_kwh": a.TotalLoss, "loss_pct": lossPct,
+		})
 	}
-
-	avgLossPct := 0.0
-	if balanceCount > 0 {
-		avgLossPct = totalLossPct / float64(balanceCount)
+	avg := 0.0
+	if injected > 0 {
+		avg = loss / injected * 100
 	}
-
-	response := map[string]any{
-		"average_loss_pct": avgLossPct,
-		"total_energy_kwh": totalEnergyKWh,
-		"total_billed_kwh": totalBilledKWh,
-		"balance_count":    balanceCount,
-	}
-
-	request.WriteJSON(w, http.StatusOK, request.Success(response, ""))
+	request.WriteJSON(w, http.StatusOK, request.Success(map[string]any{
+		"average_loss_pct": avg,
+		"total_energy_kwh": injected,
+		"total_billed_kwh": billed,
+		"total_loss_kwh":   loss,
+		"balance_count":    count,
+		"months":           months,
+	}, ""))
 }
 
-// GetKPISparklines returns sparkline data for each KPI card
+// GetKPISparklines returns sparkline data for each KPI card. Valores em R$
+// sao omitidos para papeis sem financial:view.
 func (h *DashboardHandler) GetKPISparklines(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-	ctx := context.Background()
-
-	// Get last 12 months of data for sparklines
-	monthlyAggregates, err := h.balanceRepo.GetMonthlyAggregatesByTenant(ctx, tenantID, 12)
+	ctx := r.Context()
+	tenantID := middleware.GetTenantID(ctx)
+	aggs, err := h.balanceRepo.GetMonthlyAggregatesByTenant(ctx, tenantID, 12)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("SPARKLINE_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "SPARKLINE_ERROR")
 		return
 	}
-
-	// Energy injected sparkline
-	energyInjectedPoints := make([]SparklinePoint, len(monthlyAggregates))
-	for i, agg := range monthlyAggregates {
-		energyInjectedPoints[i] = SparklinePoint{
-			Date:  agg.Month.Format("2006-01"),
-			Value: agg.TotalEnergyInjected,
-		}
+	evo, err := h.dashboard.Evolution(ctx, tenantID, 1)
+	if err != nil {
+		writeUseCaseError(w, err, "SPARKLINE_ERROR")
+		return
 	}
+	limit := 10.0
+	if n := len(evo); n > 0 {
+		limit = evo[n-1].LimitPct
+	}
+	tariff, _ := h.dashboard.Tariff(ctx, tenantID, 0)
+	financial := canViewFinancial(r)
 
-	// Total loss sparkline with ANEEL limit
-	lossPoints := make([]SparklinePointWithLimit, len(monthlyAggregates))
-	// Get average ANEEL limit across transformers
-	var avgAneelLimit float64
-	transformers, _ := h.transformerRepo.GetByTenant(ctx, tenantID)
-	if len(transformers) > 0 {
-		var sumLimit float64
-		for _, t := range transformers {
-			if t.LossLimitPct != nil {
-				sumLimit += *t.LossLimitPct
-			} else {
-				sumLimit += 10.0
+	energy := make([]SparklinePoint, 0, len(aggs))
+	losses := make([]SparklinePointWithLimit, 0, len(aggs))
+	cost := make([]SparklinePoint, 0, len(aggs))
+	revenue := make([]SparklinePoint, 0, len(aggs))
+	savings := make([]SparklinePoint, 0, len(aggs))
+	for _, a := range aggs {
+		m := a.Month.Format("2006-01")
+		energy = append(energy, SparklinePoint{Date: m, Value: a.TotalEnergyInjected})
+		lossPct := 0.0
+		if a.TotalEnergyInjected > 0 {
+			lossPct = a.TotalLoss / a.TotalEnergyInjected * 100
+		}
+		losses = append(losses, SparklinePointWithLimit{Date: m, Value: lossPct, Limit: limit})
+		if financial {
+			excess := a.TotalLoss - a.TotalEnergyInjected*limit/100
+			if excess < 0 {
+				excess = 0
 			}
-		}
-		avgAneelLimit = sumLimit / float64(len(transformers))
-	}
-	for i, agg := range monthlyAggregates {
-		lossPoints[i] = SparklinePointWithLimit{
-			Date:      agg.Month.Format("2006-01"),
-			Value:     agg.AvgLossPct,
-			Limit:     avgAneelLimit,
+			cost = append(cost, SparklinePoint{Date: m, Value: a.TotalLoss / 1000 * tariff})
+			revenue = append(revenue, SparklinePoint{Date: m, Value: a.TotalConsumption / 1000 * tariff})
+			savings = append(savings, SparklinePoint{Date: m, Value: excess / 1000 * tariff})
 		}
 	}
-
-	// Loss cost sparkline (using average tariff)
-	// In production, this would come from tenant settings
-	tariffPerMWh := 450.0 // R$/MWh default
-	costPoints := make([]SparklinePoint, len(monthlyAggregates))
-	for i, agg := range monthlyAggregates {
-		costBRL := (agg.TotalLoss / 1000.0) * tariffPerMWh
-		costPoints[i] = SparklinePoint{
-			Date:  agg.Month.Format("2006-01"),
-			Value: costBRL,
-		}
+	resp := map[string]any{"energy_injected": energy, "total_loss": losses}
+	if financial {
+		resp["loss_cost"], resp["billed_revenue"], resp["potential_savings"] = cost, revenue, savings
+		resp["tariff_brl_mwh"] = tariff
 	}
-
-	// Billed revenue sparkline
-	revenuePoints := make([]SparklinePoint, len(monthlyAggregates))
-	for i, agg := range monthlyAggregates {
-		revenueBRL := (agg.TotalConsumption / 1000.0) * tariffPerMWh
-		revenuePoints[i] = SparklinePoint{
-			Date:  agg.Month.Format("2006-01"),
-			Value: revenueBRL,
-		}
-	}
-
-	// Potential savings (difference between current loss and ANEEL limit)
-	savingsPoints := make([]SparklinePoint, len(monthlyAggregates))
-	for i, agg := range monthlyAggregates {
-		allowedLossKWh := agg.TotalEnergyInjected * (avgAneelLimit / 100.0)
-		excessLossKWh := agg.TotalLoss - allowedLossKWh
-		if excessLossKWh < 0 {
-			excessLossKWh = 0
-		}
-		savingsBRL := (excessLossKWh / 1000.0) * tariffPerMWh
-		savingsPoints[i] = SparklinePoint{
-			Date:  agg.Month.Format("2006-01"),
-			Value: savingsBRL,
-		}
-	}
-
-	response := map[string]any{
-		"energy_injected":  energyInjectedPoints,
-		"total_loss":       lossPoints,
-		"loss_cost":        costPoints,
-		"billed_revenue":   revenuePoints,
-		"potential_savings": savingsPoints,
-	}
-
-	request.WriteJSON(w, http.StatusOK, request.Success(response, ""))
+	request.WriteJSON(w, http.StatusOK, request.Success(resp, ""))
 }
 
 // GetLossEvolution returns monthly loss evolution with ANEEL limit
 func (h *DashboardHandler) GetLossEvolution(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-	ctx := context.Background()
-
-	monthlyAggregates, err := h.balanceRepo.GetMonthlyAggregatesByTenant(ctx, tenantID, 12)
+	evolution, err := h.dashboard.Evolution(r.Context(), middleware.GetTenantID(r.Context()), 12)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("EVOLUTION_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "EVOLUTION_ERROR")
 		return
 	}
-
-	// Get average ANEEL limit
-	var avgAneelLimit float64
-	transformers, _ := h.transformerRepo.GetByTenant(ctx, tenantID)
-	if len(transformers) > 0 {
-		var sumLimit float64
-		for _, t := range transformers {
-			if t.LossLimitPct != nil {
-				sumLimit += *t.LossLimitPct
-			} else {
-				sumLimit += 10.0
-			}
-		}
-		avgAneelLimit = sumLimit / float64(len(transformers))
-	}
-
 	type EvolutionPoint struct {
-		Month         string  `json:"month"`
-		TotalLossPct  float64 `json:"total_loss_pct"`
-		TechnicalPct  float64 `json:"technical_pct"`
+		Month           string  `json:"month"`
+		TotalLossPct    float64 `json:"total_loss_pct"`
+		TechnicalPct    float64 `json:"technical_pct"`
 		NonTechnicalPct float64 `json:"non_technical_pct"`
-		AneelLimit    float64 `json:"aneel_limit"`
+		AneelLimit      float64 `json:"aneel_limit"`
+		InjectedMWh     float64 `json:"injected_mwh"`
+		BilledMWh       float64 `json:"billed_mwh"`
 	}
-
-	points := make([]EvolutionPoint, len(monthlyAggregates))
-	for i, agg := range monthlyAggregates {
-		techPct := 0.0
-		nonTechPct := 0.0
-		if agg.TotalEnergyInjected > 0 {
-			techPct = (agg.TotalTechnicalLoss / agg.TotalEnergyInjected) * 100
-			nonTechPct = (agg.TotalNonTechnicalLoss / agg.TotalEnergyInjected) * 100
-		}
-		points[i] = EvolutionPoint{
-			Month:            agg.Month.Format("2006-01"),
-			TotalLossPct:     agg.AvgLossPct,
-			TechnicalPct:     techPct,
-			NonTechnicalPct:  nonTechPct,
-			AneelLimit:       avgAneelLimit,
-		}
+	points := make([]EvolutionPoint, 0, len(evolution))
+	for _, p := range evolution {
+		points = append(points, EvolutionPoint{
+			Month: p.Month, TotalLossPct: p.LossPct, TechnicalPct: p.TechnicalPct,
+			NonTechnicalPct: p.NonTechnicalPct, AneelLimit: p.LimitPct, InjectedMWh: p.InjectedMWh, BilledMWh: p.BilledMWh,
+		})
 	}
-
 	request.WriteJSON(w, http.StatusOK, request.Success(points, ""))
 }
 
 // GetLossComposition returns technical vs non-technical loss donut data
 func (h *DashboardHandler) GetLossComposition(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-	ctx := context.Background()
-
-	comp, err := h.balanceRepo.GetLossCompositionByTenant(ctx, tenantID)
+	comp, err := h.balanceRepo.GetLossCompositionByTenant(r.Context(), middleware.GetTenantID(r.Context()))
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("COMPOSITION_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "COMPOSITION_ERROR")
 		return
 	}
-
 	total := comp.TotalTechnicalLoss + comp.TotalNonTechnicalLoss
-	techPct := 0.0
-	nonTechPct := 0.0
+	techPct, nonTechPct := 0.0, 0.0
 	if total > 0 {
-		techPct = (comp.TotalTechnicalLoss / total) * 100
-		nonTechPct = (comp.TotalNonTechnicalLoss / total) * 100
+		techPct = comp.TotalTechnicalLoss / total * 100
+		nonTechPct = comp.TotalNonTechnicalLoss / total * 100
 	}
-
-	response := map[string]any{
-		"technical":      comp.TotalTechnicalLoss,
-		"non_technical":  comp.TotalNonTechnicalLoss,
-		"technical_pct":  techPct,
+	request.WriteJSON(w, http.StatusOK, request.Success(map[string]any{
+		"technical":         comp.TotalTechnicalLoss,
+		"non_technical":     comp.TotalNonTechnicalLoss,
+		"technical_pct":     techPct,
 		"non_technical_pct": nonTechPct,
-	}
-
-	request.WriteJSON(w, http.StatusOK, request.Success(response, ""))
+	}, ""))
 }
 
 // GetTransformerStatusDistribution returns status donut data
 func (h *DashboardHandler) GetTransformerStatusDistribution(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-	ctx := context.Background()
-
-	counts, err := h.balanceRepo.GetTransformerStatusCounts(ctx, tenantID)
+	items, err := h.dashboard.Summaries(r.Context(), middleware.GetTenantID(r.Context()), repository.TransformerFilter{})
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("STATUS_DIST_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "STATUS_DIST_ERROR")
 		return
 	}
-
-	total := counts.Normal + counts.Warning + counts.Critical
-	response := map[string]any{
-		"normal":   counts.Normal,
-		"warning":  counts.Warning,
-		"critical": counts.Critical,
-		"total":    total,
+	counts := map[string]int{"NORMAL": 0, "WARNING": 0, "CRITICAL": 0, "NO_DATA": 0}
+	for _, s := range items {
+		counts[s.Status]++
 	}
-
-	request.WriteJSON(w, http.StatusOK, request.Success(response, ""))
+	request.WriteJSON(w, http.StatusOK, request.Success(map[string]any{
+		"normal":   counts["NORMAL"],
+		"warning":  counts["WARNING"],
+		"critical": counts["CRITICAL"],
+		"no_data":  counts["NO_DATA"],
+		"total":    len(items),
+	}, ""))
 }
 
 // GetQuarterlyInjectedBilled returns quarterly injected vs billed bars
 func (h *DashboardHandler) GetQuarterlyInjectedBilled(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-	ctx := context.Background()
-
-	aggregates, err := h.balanceRepo.GetQuarterlyAggregatesByTenant(ctx, tenantID, 4)
+	aggs, err := h.balanceRepo.GetQuarterlyAggregatesByTenant(r.Context(), middleware.GetTenantID(r.Context()), 4)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("QUARTERLY_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "QUARTERLY_ERROR")
 		return
 	}
-
 	type QuarterlyPoint struct {
-		Quarter      string  `json:"quarter"`
-		InjectedMWh  float64 `json:"injected_mwh"`
-		BilledMWh    float64 `json:"billed_mwh"`
+		Quarter     string  `json:"quarter"`
+		InjectedMWh float64 `json:"injected_mwh"`
+		BilledMWh   float64 `json:"billed_mwh"`
 	}
-
-	points := make([]QuarterlyPoint, len(aggregates))
-	for i, agg := range aggregates {
-		points[i] = QuarterlyPoint{
-			Quarter:     agg.Quarter.Format("2006-Q"),
-			InjectedMWh: agg.TotalEnergyInjected / 1000.0,
-			BilledMWh:   agg.TotalConsumption / 1000.0,
-		}
+	points := make([]QuarterlyPoint, 0, len(aggs))
+	for _, a := range aggs {
+		q := (int(a.Quarter.Month())-1)/3 + 1
+		points = append(points, QuarterlyPoint{
+			Quarter:     strconv.Itoa(a.Quarter.Year()) + "-T" + strconv.Itoa(q),
+			InjectedMWh: a.TotalEnergyInjected / 1000,
+			BilledMWh:   a.TotalConsumption / 1000,
+		})
 	}
-
 	request.WriteJSON(w, http.StatusOK, request.Success(points, ""))
 }
 
 // GetAccumulatedLossCost returns accumulated loss cost area chart
+// (tarifa do tenant; ?tariff= sobrescreve para simulacao).
 func (h *DashboardHandler) GetAccumulatedLossCost(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-	ctx := context.Background()
-
-	// Get tariff from query param or use default
-	tariffPerMWh := 450.0 // default R$/MWh
-	if tariffStr := r.URL.Query().Get("tariff"); tariffStr != "" {
-		if t, err := strconv.ParseFloat(tariffStr, 64); err == nil {
-			tariffPerMWh = t
-		}
-	}
-
-	points, err := h.balanceRepo.GetAccumulatedLossCost(ctx, tenantID, tariffPerMWh, 12)
+	ctx := r.Context()
+	tenantID := middleware.GetTenantID(ctx)
+	tariff, _ := h.dashboard.Tariff(ctx, tenantID, queryFloat(r, "tariff"))
+	points, err := h.balanceRepo.GetAccumulatedLossCost(ctx, tenantID, tariff, 12)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("COST_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "COST_ERROR")
 		return
 	}
-
 	type CostPoint struct {
 		Month              string  `json:"month"`
 		MonthlyLossKWh     float64 `json:"monthly_loss_kwh"`
@@ -513,39 +359,24 @@ func (h *DashboardHandler) GetAccumulatedLossCost(w http.ResponseWriter, r *http
 		MonthlyCostBRL     float64 `json:"monthly_cost_brl"`
 		AccumulatedCostBRL float64 `json:"accumulated_cost_brl"`
 	}
-
-	response := make([]CostPoint, len(points))
-	for i, p := range points {
-		response[i] = CostPoint{
-			Month:              p.Month.Format("2006-01"),
-			MonthlyLossKWh:     p.MonthlyLossKWh,
-			AccumulatedLossKWh: p.AccumulatedLossKWh,
-			MonthlyCostBRL:     p.MonthlyCostBRL,
-			AccumulatedCostBRL: p.AccumulatedCostBRL,
-		}
+	resp := make([]CostPoint, 0, len(points))
+	for _, p := range points {
+		resp = append(resp, CostPoint{
+			Month: p.Month.Format("2006-01"), MonthlyLossKWh: p.MonthlyLossKWh, AccumulatedLossKWh: p.AccumulatedLossKWh,
+			MonthlyCostBRL: p.MonthlyCostBRL, AccumulatedCostBRL: p.AccumulatedCostBRL,
+		})
 	}
-
-	request.WriteJSON(w, http.StatusOK, request.Success(response, ""))
+	request.WriteJSON(w, http.StatusOK, request.Success(resp, ""))
 }
 
-// GetTopTransformersByLoss returns top 5 transformers by loss
+// GetTopTransformersByLoss returns top N transformers by loss (max 50)
 func (h *DashboardHandler) GetTopTransformersByLoss(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-	ctx := context.Background()
-
-	limit := 5
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
-		}
-	}
-
-	transformers, err := h.balanceRepo.GetTopTransformersByLoss(ctx, tenantID, limit)
+	limit := min(max(queryInt(r, "limit", 5), 1), 50)
+	items, err := h.balanceRepo.GetTopTransformersByLoss(r.Context(), middleware.GetTenantID(r.Context()), limit)
 	if err != nil {
-		request.WriteJSON(w, http.StatusInternalServerError, request.Fail("TOP_ERROR", err.Error(), nil))
+		writeUseCaseError(w, err, "TOP_ERROR")
 		return
 	}
-
 	type TopTransformer struct {
 		TransformerID       string  `json:"transformer_id"`
 		Code                string  `json:"code"`
@@ -555,86 +386,118 @@ func (h *DashboardHandler) GetTopTransformersByLoss(w http.ResponseWriter, r *ht
 		TechnicalLossKWh    float64 `json:"technical_loss_kwh"`
 		NonTechnicalLossKWh float64 `json:"non_technical_loss_kwh"`
 	}
-
-	response := make([]TopTransformer, len(transformers))
-	for i, t := range transformers {
-		response[i] = TopTransformer{
-			TransformerID:       string(t.TransformerID),
-			Code:                t.Code,
-			LossPct:             t.LossPct,
-			LossKWh:             t.LossKWh,
-			EnergyInjectedKWh:   t.EnergyInjectedKWh,
-			TechnicalLossKWh:    t.TechnicalLossKWh,
-			NonTechnicalLossKWh: t.NonTechnicalLossKWh,
-		}
-	}
-
-	request.WriteJSON(w, http.StatusOK, request.Success(response, ""))
-}
-
-// GetFinancialTable returns financial table with configurable tariff
-func (h *DashboardHandler) GetFinancialTable(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-	ctx := context.Background()
-
-	tariffPerMWh := 450.0
-	if tariffStr := r.URL.Query().Get("tariff"); tariffStr != "" {
-		if t, err := strconv.ParseFloat(tariffStr, 64); err == nil {
-			tariffPerMWh = t
-		}
-	}
-
-	// Get latest balances for all transformers
-	transformers, _ := h.transformerRepo.GetByTenant(ctx, tenantID)
-
-	type FinancialRow struct {
-		TransformerID     string  `json:"transformer_id"`
-		Code              string  `json:"code"`
-		LossPct           float64 `json:"loss_pct"`
-		LossKWh           float64 `json:"loss_kwh"`
-		LossCostBRL       float64 `json:"loss_cost_brl"`
-		EnergyInjectedKWh float64 `json:"energy_injected_kwh"`
-		EnergyBilledKWh   float64 `json:"energy_billed_kwh"`
-		RevenueBRL        float64 `json:"revenue_brl"`
-		PotentialSavingsBRL float64 `json:"potential_savings_brl"`
-	}
-
-	rows := make([]FinancialRow, 0, len(transformers))
-	for _, t := range transformers {
-		latest, _ := h.balanceRepo.GetLatestByTransformer(ctx, t.ID)
-		if latest == nil {
-			continue
-		}
-
-		lossCostBRL := (latest.LossKWh / 1000.0) * tariffPerMWh
-		revenueBRL := (latest.TotalConsumptionKWh / 1000.0) * tariffPerMWh
-
-		// Potential savings: excess loss above ANEEL limit
-		limit := 10.0
-		if t.LossLimitPct != nil {
-			limit = *t.LossLimitPct
-		}
-		allowedLossKWh := latest.EnergyInjectedKWh * (limit / 100.0)
-		excessLossKWh := latest.LossKWh - allowedLossKWh
-		if excessLossKWh < 0 {
-			excessLossKWh = 0
-		}
-		potentialSavingsBRL := (excessLossKWh / 1000.0) * tariffPerMWh
-
-		rows = append(rows, FinancialRow{
-			TransformerID:       string(t.ID),
-			Code:                t.Code,
-			LossPct:             latest.LossPct,
-			LossKWh:             latest.LossKWh,
-			LossCostBRL:         lossCostBRL,
-			EnergyInjectedKWh:   latest.EnergyInjectedKWh,
-			EnergyBilledKWh:     latest.TotalConsumptionKWh,
-			RevenueBRL:          revenueBRL,
-			PotentialSavingsBRL: potentialSavingsBRL,
+	resp := make([]TopTransformer, 0, len(items))
+	for _, t := range items {
+		resp = append(resp, TopTransformer{
+			TransformerID: string(t.TransformerID), Code: t.Code, LossPct: t.LossPct, LossKWh: t.LossKWh,
+			EnergyInjectedKWh: t.EnergyInjectedKWh, TechnicalLossKWh: t.TechnicalLossKWh, NonTechnicalLossKWh: t.NonTechnicalLossKWh,
 		})
 	}
+	request.WriteJSON(w, http.StatusOK, request.Success(resp, ""))
+}
 
+// GetFinancialTable returns the financial table of the latest balance of
+// each transformer (tarifa do tenant; ?tariff= sobrescreve).
+func (h *DashboardHandler) GetFinancialTable(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	tenantID := middleware.GetTenantID(ctx)
+	tariff, _ := h.dashboard.Tariff(ctx, tenantID, queryFloat(r, "tariff"))
+	items, err := h.dashboard.Summaries(ctx, tenantID, repository.TransformerFilter{})
+	if err != nil {
+		writeUseCaseError(w, err, "FINANCIAL_ERROR")
+		return
+	}
+	type FinancialRow struct {
+		TransformerID       string  `json:"transformer_id"`
+		Code                string  `json:"code"`
+		LossPct             float64 `json:"loss_pct"`
+		LossKWh             float64 `json:"loss_kwh"`
+		LossCostBRL         float64 `json:"loss_cost_brl"`
+		EnergyInjectedKWh   float64 `json:"energy_injected_kwh"`
+		EnergyBilledKWh     float64 `json:"energy_billed_kwh"`
+		RevenueBRL          float64 `json:"revenue_brl"`
+		PotentialSavingsBRL float64 `json:"potential_savings_brl"`
+	}
+	rows := make([]FinancialRow, 0, len(items))
+	for _, p := range items {
+		if p.LossPct == nil {
+			continue
+		}
+		limit := deref(p.LossLimitPct)
+		if limit <= 0 {
+			limit = 10
+		}
+		loss, injected := deref(p.LossKWh), deref(p.EnergyInjectedKWh)
+		excess := loss - injected*limit/100
+		if excess < 0 {
+			excess = 0
+		}
+		rows = append(rows, FinancialRow{
+			TransformerID: string(p.ID), Code: p.Code, LossPct: *p.LossPct, LossKWh: loss,
+			LossCostBRL: loss / 1000 * tariff, EnergyInjectedKWh: injected, EnergyBilledKWh: deref(p.TotalConsumptionKWh),
+			RevenueBRL: deref(p.TotalConsumptionKWh) / 1000 * tariff, PotentialSavingsBRL: excess / 1000 * tariff,
+		})
+	}
+	// Maior valor recuperavel primeiro; ?limit= controla o tamanho (padrao 1000).
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].PotentialSavingsBRL > rows[j].PotentialSavingsBRL })
+	rows = rows[:min(len(rows), listLimit(r))]
 	request.WriteJSON(w, http.StatusOK, request.Success(rows, ""))
+}
+
+// GetMap returns the georeferenced transformers, substations, bounds and
+// status counters (GET /dashboard/map?status=&substation_id=&group_id=&search=
+// &bbox=min_lat,min_lng,max_lat,max_lng&limit=).
+func (h *DashboardHandler) GetMap(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	f := usecase.MapFilter{Status: strings.ToUpper(q.Get("status")), Search: strings.TrimSpace(q.Get("search"))}
+	if v := q.Get("substation_id"); isUUID(v) {
+		f.SubstationID = v
+	}
+	if v := q.Get("group_id"); isUUID(v) {
+		f.GroupID = v
+	}
+	if parts := strings.Split(q.Get("bbox"), ","); len(parts) == 4 {
+		var v [4]float64
+		valid := true
+		for i, p := range parts {
+			n, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+			if err != nil {
+				valid = false
+				break
+			}
+			v[i] = n
+		}
+		if valid && v[0] <= v[2] && v[1] <= v[3] {
+			f.BBox = &usecase.MapBounds{MinLat: v[0], MinLng: v[1], MaxLat: v[2], MaxLng: v[3]}
+		}
+	}
+	f.Limit = queryInt(r, "limit", usecase.DefaultMapPoints)
+	m, err := h.dashboard.Map(r.Context(), middleware.GetTenantID(r.Context()), f, canViewFinancial(r))
+	if err != nil {
+		writeUseCaseError(w, err, "MAP_ERROR")
+		return
+	}
+	request.WriteJSON(w, http.StatusOK, request.Success(m, ""))
+}
+
+// GetOperational returns the operational dashboard (GET /dashboard/operational)
+func (h *DashboardHandler) GetOperational(w http.ResponseWriter, r *http.Request) {
+	d, err := h.dashboard.Operational(r.Context(), middleware.GetTenantID(r.Context()))
+	if err != nil {
+		writeUseCaseError(w, err, "OPERATIONAL_ERROR")
+		return
+	}
+	request.WriteJSON(w, http.StatusOK, request.Success(d, ""))
+}
+
+// GetManagerial returns the managerial dashboard (GET /dashboard/managerial?tariff=)
+func (h *DashboardHandler) GetManagerial(w http.ResponseWriter, r *http.Request) {
+	d, err := h.dashboard.Managerial(r.Context(), middleware.GetTenantID(r.Context()), queryFloat(r, "tariff"))
+	if err != nil {
+		writeUseCaseError(w, err, "MANAGERIAL_ERROR")
+		return
+	}
+	request.WriteJSON(w, http.StatusOK, request.Success(d, ""))
 }
 
 // SparklinePoint represents a simple sparkline data point

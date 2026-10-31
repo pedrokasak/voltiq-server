@@ -78,12 +78,12 @@ func (p *ResendProvider) SendTemplateEmail(ctx context.Context, input SendTempla
 	}
 
 	payload := map[string]any{
-		"from":       from,
-		"to":         input.To,
-		"subject":    input.Subject,
+		"from":        from,
+		"to":          input.To,
+		"subject":     input.Subject,
 		"template_id": input.TemplateID,
-		"data":       input.TemplateData,
-		"reply_to":   replyTo,
+		"data":        input.TemplateData,
+		"reply_to":    replyTo,
 	}
 
 	return p.sendRequest(ctx, "/emails", payload)
@@ -122,15 +122,15 @@ func (p *ResendProvider) sendRequest(ctx context.Context, endpoint string, paylo
 
 // DunningEmailData represents data for dunning email templates
 type DunningEmailData struct {
-	TenantName       string
-	PlanName         string
-	Amount           string
-	DueDate          string
-	DaysOverdue      int
-	BillingURL       string
-	SupportEmail     string
-	CompanyName      string
-	Stage            int // 1, 2, or 3
+	TenantName   string
+	PlanName     string
+	Amount       string
+	DueDate      string
+	DaysOverdue  int
+	BillingURL   string
+	SupportEmail string
+	CompanyName  string
+	Stage        int // 1, 2, or 3
 }
 
 // GetDunningSubject returns subject based on stage

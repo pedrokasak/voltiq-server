@@ -1,1 +1,8 @@
 .env
+
+# Build artifacts
+/api
+/bin/
+*.test
+*.out
+coverage.*

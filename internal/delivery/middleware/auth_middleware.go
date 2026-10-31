@@ -9,6 +9,7 @@ import (
 	"github.com/voltiq/server/internal/domain"
 	"github.com/voltiq/server/internal/jwt"
 	"github.com/voltiq/server/internal/repository"
+	"github.com/voltiq/server/internal/reqctx"
 )
 
 type contextKey string
@@ -63,10 +64,14 @@ func (m *AuthMiddleware) Handler(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, EmailKey, claims.Email)
 		ctx = context.WithValue(ctx, RoleKey, string(claims.Role))
 
-		// Set tenant ID for RLS policies using the db instance from middleware
-		if m.db != nil {
-			ctx = m.db.SetTenantID(ctx, claims.TenantID)
-		}
+		// Identidade usada pelos repositórios (filtro por tenant) e pelo pool
+		// de conexões (variáveis de RLS), ver internal/reqctx.
+		ctx = reqctx.WithIdentity(ctx, reqctx.Identity{
+			UserID:   domain.UUID(claims.UserID),
+			TenantID: domain.UUID(claims.TenantID),
+			Email:    claims.Email,
+			Role:     domain.UserRole(claims.Role),
+		})
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -112,6 +117,14 @@ func GetUserID(ctx context.Context) domain.UUID {
 func GetTenantID(ctx context.Context) domain.UUID {
 	if tenantID, ok := ctx.Value(TenantIDKey).(domain.UUID); ok {
 		return tenantID
+	}
+	return ""
+}
+
+// GetUserEmail extracts the user e-mail from context
+func GetUserEmail(ctx context.Context) string {
+	if email, ok := ctx.Value(EmailKey).(string); ok {
+		return email
 	}
 	return ""
 }

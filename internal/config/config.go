@@ -8,23 +8,23 @@ import (
 
 // EmailConfig holds email configuration
 type EmailConfig struct {
-	Provider    string
+	Provider     string
 	ResendAPIKey string
-	FromEmail   string
-	FromName    string
-	ReplyTo     string
-	BaseURL     string
+	FromEmail    string
+	FromName     string
+	ReplyTo      string
+	BaseURL      string
 }
 
 // LoadEmailConfig loads email configuration from environment variables
 func LoadEmailConfig() *EmailConfig {
 	return &EmailConfig{
-		Provider:    getEnv("EMAIL_PROVIDER", "resend"),
+		Provider:     getEnv("EMAIL_PROVIDER", "resend"),
 		ResendAPIKey: getEnv("RESEND_API_KEY", ""),
-		FromEmail:   getEnv("EMAIL_FROM_EMAIL", "noreply@voltiq.com.br"),
-		FromName:    getEnv("EMAIL_FROM_NAME", "Voltiq Software"),
-		ReplyTo:     getEnv("EMAIL_REPLY_TO", "suporte@voltiq.com.br"),
-		BaseURL:     getEnv("APP_BASE_URL", "https://app.voltiq.com.br"),
+		FromEmail:    getEnv("EMAIL_FROM", getEnv("EMAIL_FROM_EMAIL", "noreply@voltiq.com.br")),
+		FromName:     getEnv("EMAIL_FROM_NAME", "Voltiq Software"),
+		ReplyTo:      getEnv("EMAIL_REPLY_TO", "suporte@voltiq.com.br"),
+		BaseURL:      getEnv("DASHBOARD_URL", getEnv("APP_BASE_URL", "https://app.voltiq.com.br")),
 	}
 }
 
@@ -98,21 +98,21 @@ func LoadRateLimitConfig() *RateLimitConfig {
 
 // AppConfig holds all application configuration
 type AppConfig struct {
-	Email      *EmailConfig
-	Database   *DatabaseConfig
-	JWT        *JWTConfig
-	Server     *ServerConfig
-	RateLimit  *RateLimitConfig
+	Email     *EmailConfig
+	Database  *DatabaseConfig
+	JWT       *JWTConfig
+	Server    *ServerConfig
+	RateLimit *RateLimitConfig
 }
 
 // LoadAppConfig loads all application configuration
 func LoadAppConfig() *AppConfig {
 	return &AppConfig{
-		Email:      LoadEmailConfig(),
-		Database:   LoadDatabaseConfig(),
-		JWT:        LoadJWTConfig(),
-		Server:     LoadServerConfig(),
-		RateLimit:  LoadRateLimitConfig(),
+		Email:     LoadEmailConfig(),
+		Database:  LoadDatabaseConfig(),
+		JWT:       LoadJWTConfig(),
+		Server:    LoadServerConfig(),
+		RateLimit: LoadRateLimitConfig(),
 	}
 }
 
